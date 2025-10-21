@@ -1,70 +1,22 @@
-<!doctype html><!-- (1) HTML5 宣言 -->
-<html lang="en"><!-- (2) 文書言語 -->
-<head>
-  <meta charset="utf-8"/><!-- (3) 文字コード -->
-  <meta name="viewport" content="width=device-width, initial-scale=1"/><!-- (4) モバイル最適化 -->
-  <title>Idle Bells</title><!-- (5) タイトル -->
 
-  <!-- (6) PWA マニフェスト：相対パス（ページ配信はこれでOK / PWABuilderは中身のフルURLを参照） -->
-  <link rel="manifest" href="./manifest.webmanifest">
-  <meta name="theme-color" content="#111827"/><!-- (7) テーマカラー -->
-
-  <!-- (8) ざっくりCSS -->
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
-    .counter { font-size: 32px; font-weight: 800; text-align:center; margin: 16px 0; }
-    .grid { display:grid; gap:12px; }
-    .tap {
-      height:160px; display:flex; align-items:center; justify-content:center;
-      font-size:32px; font-weight:900; border-radius:16px; background:#f0f3ff;
-      user-select:none; -webkit-user-select:none; touch-action:manipulation;
+{
+  "name": "Idle Bells",                       // 1: アプリ名（長い）
+  "short_name": "IdleBells",                  // 2: ホーム画面ラベル
+  "start_url": "./",                          // 3: サブパス対応
+  "scope": "./",                              // 4: 同上
+  "display": "standalone",                    // 5: ブラウザUIを隠す
+  "background_color": "#ffffff",              // 6: スプラッシュ背景色
+  "theme_color": "#111827",                   // 7: テーマカラー
+  "icons": [                                  // 8: ★フルURL指定（PWABuilder用に確実化）
+    {
+      "src": "https://1004munil-maker.github.io/idle-pwa/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://1004munil-maker.github.io/idle-pwa/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
     }
-    .card { border:1px solid #e5e7eb; border-radius:12px; padding:12px;
-            display:flex; justify-content:space-between; align-items:center; }
-    button { padding:10px 14px; border-radius:10px; border:1px solid #111827;
-             background:#111827; color:#fff; font-weight:700; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Idle Bells</h1>
-    <!-- (9) カウンター表示 -->
-    <div class="counter">Bells: <span id="coins">0</span></div>
-    <div style="text-align:center">Per Sec: <span id="cps">0</span> / Tap: <span id="tap">1</span></div>
-
-    <!-- (10) タップで増えるボタン -->
-    <div class="tap" id="tapBtn">TAP!</div>
-
-    <!-- (11) アップグレード -->
-    <div class="grid">
-      <div class="card">
-        <div>
-          <div style="font-weight:700">Worker</div>
-          <div>+1 / sec • Cost: <span id="workerCost">10</span></div>
-        </div>
-        <button id="buyWorker">Buy</button>
-      </div>
-
-      <div class="card">
-        <div>
-          <div style="font-weight:700">Tap Power</div>
-          <div>+1 / tap • Cost: <span id="tapCost">8</span></div>
-        </div>
-        <button id="buyTap">Buy</button>
-      </div>
-
-      <button id="saveBtn">Save</button>
-    </div>
-  </div>
-
-  <!-- (12) ゲームロジック -->
-  <script src="./game.js"></script>
-  <!-- (13) Service Worker 登録（相対パス必須） -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js');
-    }
-  </script>
-</body>
-</html>
+  ]
+}
