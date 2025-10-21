@@ -1,13 +1,12 @@
-
 {
-  "name": "Idle Bells",                       // 1: アプリ名（長い）
-  "short_name": "IdleBells",                  // 2: ホーム画面ラベル
-  "start_url": "./",                          // 3: サブパス対応
-  "scope": "./",                              // 4: 同上
-  "display": "standalone",                    // 5: ブラウザUIを隠す
-  "background_color": "#ffffff",              // 6: スプラッシュ背景色
-  "theme_color": "#111827",                   // 7: テーマカラー
-  "icons": [                                  // 8: ★フルURL指定（PWABuilder用に確実化）
+  "name": "Idle Bells",
+  "short_name": "IdleBells",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111827",
+  "icons": [
     {
       "src": "https://1004munil-maker.github.io/idle-pwa/icons/icon-192.png",
       "sizes": "192x192",
