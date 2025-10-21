@@ -94,9 +94,9 @@ const R_ENEMY  = 13;
 
 /* (6) ---------- 敵タイプ（速度&HP）＋抽選 ---------- */
 const ENEMY_TYPES = {
-  swarm:  { speed:120, hp:100, reward:1 },
-  runner: { speed:160, hp: 70, reward:1 },
-  tank:   { speed: 90, hp:260, reward:5 },
+  swarm:  { speed:120, hp:10, reward:1 },
+  runner: { speed:160, hp: 7, reward:1 },
+  tank:   { speed: 90, hp:26, reward:5 },
 };
 const SPAWN_WEIGHTS = [
   { type: 'swarm',  w: 0.60 },
