@@ -1,68 +1,75 @@
-<!doctype html> <!-- (1) HTML5宣言：ブラウザに最新モードで描画 -->
-<html lang="en"> <!-- (2) 文書言語を英語に設定 -->
+<!DOCTYPE html>
+<html lang="ja">
 <head>
-  <meta charset="utf-8"/> <!-- (3) 文字コードUTF-8 -->
-  <meta name="viewport" content="width=device-width, initial-scale=1"/> <!-- (4) モバイル対応 -->
-  <title>Idle Bells</title> <!-- (5) タブや共有に出るアプリ名 -->
+  <!-- (1) 基本メタ -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>雷精霊を育てよ！ | Idle Lightning</title>
 
-  <!-- (6) PWAマニフェスト。相対パスで指定（サブパス対応用） -->
+  <!-- (2) PWA -->
   <link rel="manifest" href="./manifest.webmanifest">
-  <!-- (7) アドレスバーなどに使われるテーマカラー -->
-  <meta name="theme-color" content="#111827"/>
+  <meta name="theme-color" content="#0f1115">
 
-  <!-- (8) シンプルなCSS。ゲームのUI見た目を整える -->
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
-    .counter { font-size: 32px; font-weight: 800; text-align:center; margin: 16px 0; }
-    .grid { display:grid; gap:12px; }
-    .tap { height:160px; display:flex; align-items:center; justify-content:center;
-           font-size:32px; font-weight:900; border-radius:16px; background:#f0f3ff; }
-    .card { border:1px solid #e5e7eb; border-radius:12px; padding:12px;
-            display:flex; justify-content:space-between; align-items:center; }
-    button { padding:10px 14px; border-radius:10px; border:1px solid #111827;
-             background:#111827; color:#fff; font-weight:700; }
-  </style>
+  <!-- (3) スタイル -->
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <div class="wrap">
-    <h1>Idle Bells</h1>
-    <!-- (9) コイン表示 -->
-    <div class="counter">Bells: <span id="coins">0</span></div>
-    <!-- (10) 毎秒増加量とタップ増加量 -->
-    <div style="text-align:center">Per Sec: <span id="cps">0</span> / Tap: <span id="tap">1</span></div>
-
-    <!-- (11) タップ用の大きなボタン -->
-    <div class="tap" id="tapBtn">TAP!</div>
-
-    <!-- (12) アップグレードUI -->
-    <div class="grid">
-      <div class="card">
-        <div>
-          <div style="font-weight:700">Worker</div>
-          <div>+1 / sec • Cost: <span id="workerCost">10</span></div>
-        </div>
-        <button id="buyWorker">Buy</button>
+  <!-- (4) 18:9 のゲーム枠 -->
+  <div class="game-container">
+    <!-- (4-1) HUD（右上） -->
+    <div class="hud">
+      <div class="hud-row">
+        <div class="chip gold"><span class="label">Gold</span><span id="gold">0</span></div>
+        <div class="chip dia"><span class="label">Dia</span><span id="diamond">0</span></div>
+        <div class="chip dps"><span class="label">DPS</span><span id="dps">0</span></div>
+        <div class="chip chain"><span class="label">Chain</span><span id="chain">2/15</span></div>
       </div>
+    </div>
 
-      <div class="card">
-        <div>
-          <div style="font-weight:700">Tap Power</div>
-          <div>+1 / tap • Cost: <span id="tapCost">8</span></div>
+    <!-- (4-2) バトルエリア（上40%） -->
+    <section class="battlefield">
+      <!-- ⚡ 精霊（左中央） -->
+      <div class="spirit" aria-hidden="false">⚡</div>
+
+      <!-- 敵が流れるレーン（JSで生成） -->
+      <div id="enemy-lane" class="enemy-lane"></div>
+    </section>
+
+    <!-- (4-3) ログ（中段） -->
+    <section id="log" class="log" aria-live="polite"></section>
+
+    <!-- (4-4) メニュー（下段） -->
+    <section class="menu">
+      <button class="btn-power">攻撃力</button>
+      <button class="btn-rate">速度</button>
+      <button class="btn-range">射程</button>
+    </section>
+
+    <!-- (4-5) スタート画面（オーバーレイ） -->
+    <div id="start-screen" aria-hidden="false">
+      <div class="start-card">
+        <h1 class="title">⚡ 雷精霊を育てよ！</h1>
+        <p class="subtitle">Idle Lightning</p>
+
+        <div class="btns">
+          <button id="btn-new" class="btn primary">はじめから</button>
+          <button id="btn-continue" class="btn ghost" disabled>つづきから</button>
         </div>
-        <button id="buyTap">Buy</button>
-      </div>
 
-      <button id="saveBtn">Save</button>
+        <p id="continue-hint" class="hint">
+          セーブデータがあれば「つづきから」が有効になります。
+        </p>
+      </div>
     </div>
   </div>
 
-  <!-- (13) ゲームロジックを読み込む -->
-  <script src="./game.js"></script>
-  <!-- (14) Service Worker 登録（相対パス） -->
+  <!-- (5) ゲーム本体 -->
+  <script src="./game.js?v=20251022-1"></script>
+
+  <!-- (6) Service Worker 登録（任意） -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./service-worker.js');
+      navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     }
   </script>
 </body>
