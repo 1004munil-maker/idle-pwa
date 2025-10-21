@@ -1,11 +1,16 @@
-<!doctype html>
-<html lang="en">
+<!doctype html> <!-- (1) HTML5宣言：ブラウザに最新モードで描画 -->
+<html lang="en"> <!-- (2) 文書言語を英語に設定 -->
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Idle Bells</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#ffffff"/>
+  <meta charset="utf-8"/> <!-- (3) 文字コードUTF-8 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1"/> <!-- (4) モバイル対応 -->
+  <title>Idle Bells</title> <!-- (5) タブや共有に出るアプリ名 -->
+
+  <!-- (6) PWAマニフェスト。相対パスで指定（サブパス対応用） -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <!-- (7) アドレスバーなどに使われるテーマカラー -->
+  <meta name="theme-color" content="#111827"/>
+
+  <!-- (8) シンプルなCSS。ゲームのUI見た目を整える -->
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
     .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
@@ -13,18 +18,24 @@
     .grid { display:grid; gap:12px; }
     .tap { height:160px; display:flex; align-items:center; justify-content:center;
            font-size:32px; font-weight:900; border-radius:16px; background:#f0f3ff; }
-    .card { border:1px solid #e5e7eb; border-radius:12px; padding:12px; display:flex; justify-content:space-between; align-items:center; }
-    button { padding:10px 14px; border-radius:10px; border:1px solid #111827; background:#111827; color:#fff; font-weight:700; }
+    .card { border:1px solid #e5e7eb; border-radius:12px; padding:12px;
+            display:flex; justify-content:space-between; align-items:center; }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #111827;
+             background:#111827; color:#fff; font-weight:700; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Idle Bells</h1>
+    <!-- (9) コイン表示 -->
     <div class="counter">Bells: <span id="coins">0</span></div>
+    <!-- (10) 毎秒増加量とタップ増加量 -->
     <div style="text-align:center">Per Sec: <span id="cps">0</span> / Tap: <span id="tap">1</span></div>
 
+    <!-- (11) タップ用の大きなボタン -->
     <div class="tap" id="tapBtn">TAP!</div>
 
+    <!-- (12) アップグレードUI -->
     <div class="grid">
       <div class="card">
         <div>
@@ -46,9 +57,13 @@
     </div>
   </div>
 
-  <script src="/game.js"></script>
+  <!-- (13) ゲームロジックを読み込む -->
+  <script src="./game.js"></script>
+  <!-- (14) Service Worker 登録（相対パス） -->
   <script>
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js');
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./service-worker.js');
+    }
   </script>
 </body>
 </html>
