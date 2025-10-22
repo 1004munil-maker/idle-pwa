@@ -391,30 +391,56 @@ body::after{
   *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
 
-/* ===== BGM トグル（ログ右上） ===== */
-.log { position: relative; } /* ボタンのabsolute基準 */
-.bgm-toggle {
+/* ===== BGM ボタン（右下フローティング） ===== */
+.game-container { position: relative; }
+
+.floating-ui{
   position: absolute;
-  top: 8px; right: 8px;
-  z-index: 5;
-  padding: 6px 12px;
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: 999px;
-  background: rgba(255,255,255,.06);
-  backdrop-filter: blur(4px);
-  color: #e8f0ff;
-  font: 500 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
-  letter-spacing: .02em;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform .1s ease, background .2s ease, border-color .2s ease, opacity .2s ease;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 60;
+  pointer-events: none; /* 中のボタンだけクリック可にする */
 }
-.bgm-toggle:hover { transform: translateY(-1px); }
-.bgm-toggle:active { transform: translateY(0); }
-.bgm-toggle[aria-pressed="false"] {
-  background: rgba(255,255,255,.03);
-  border-color: rgba(255,255,255,.08);
-  color: #a8b6cc;
-  opacity: .9;
+
+.floating-ui .bgm-toggle{
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .4em;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(120,160,255,.35);
+  background: linear-gradient(180deg, rgba(28,36,52,.9), rgba(18,24,36,.9));
+  color: #dfe9ff;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: .02em;
+  box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter: blur(6px);
+  transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease;
+}
+
+@media(hover:hover){
+  .floating-ui .bgm-toggle:hover{
+    transform: translateY(-1px);
+    border-color: rgba(140,180,255,.55);
+    box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12);
+  }
+}
+
+.floating-ui .bgm-toggle:active{
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(0,0,0,.35);
+}
+
+/* 押下状態（OFF）の見た目を少し落とす */
+.floating-ui .bgm-toggle[aria-pressed="false"]{
+  opacity: .75;
+  border-color: rgba(120,160,255,.25);
+}
+
+/* モバイルで少しコンパクトに＆安全域配慮 */
+@media (max-width: 520px){
+  .floating-ui{ right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .floating-ui .bgm-toggle{ padding: 8px 12px; font-size: 13px; }
 }
