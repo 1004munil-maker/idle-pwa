@@ -1,15 +1,14 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v5 Stable, EID-safe)
+   Idle Lightning - game.js (Progression v5.1 Stable, EID-safe)
    ---------------------------------------------------------
    - ステージ/章/階（30章でHP係数×1.5）
    - 10面は夜：敵HP×2、10%でダイヤ
    - 自分HP：衝突/突破で減少、0で章頭リトライ
-   - 敵3種アイコン：🦂 swarm / 🦅 runner / 🦏 tank（HPは以前の約半分）
+   - 敵3種アイコン：🦂 / 🦅 / 🦏
    - ビーム連鎖攻撃（距離減衰）
-   - 安定化：画面中心ベースの衝突/攻撃、Rectリフレッシュ、突破余白
-   - 一意敵ID（eid）で安全な生成/削除/再利用（消える/止まる系の根治）
+   - 一意敵ID（eid）で安全な生成/削除/再利用
    - HUD：残り数（remain）対応
-   - 拡張用 GameAPI（upgrades.js など外部から操作可能）
+   - TS2451（last の二重宣言）修正
    ========================================================= */
 
 /* (1) ---------- DOM参照 ---------- */
@@ -40,7 +39,10 @@ const btnRetry  = document.getElementById('btn-retry');
 
 /* (2) ---------- レイアウト計測 ---------- */
 let laneRect;
-function measureRects(){ laneRect = laneEl.getBoundingClientRect(); }
+function measureRects(){
+  if (!laneEl) return;
+  laneRect = laneEl.getBoundingClientRect();
+}
 window.addEventListener('resize', measureRects);
 window.addEventListener('orientationchange', () => setTimeout(measureRects, 200));
 
@@ -177,7 +179,7 @@ let enemySeq = 1;
 
 /* (9) ---------- ステージ・係数 ---------- */
 function stageTotalCount(chapter, stage) {
-  const base = 8 + (stage - 1);              // 1-1:8 → 1-9:16 → 1-10:17
+  const base = 8 + (stage - 1);
   return (stage === 10) ? Math.round(base * 2) : base;
 }
 function hpMultiplier() { return gs.hpScale * (gs.isNight ? 2.0 : 1.0); }
@@ -273,7 +275,6 @@ function spawnBeam(x1, y1, x2, y2, life = 0.12) {
 }
 
 /* (=) ---------- ヘルパ ---------- */
-// ※ (11) の直後
 function centerScreen(el) {
   const r = el.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -291,17 +292,13 @@ function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   spawnPlan.alive = Math.max(0, spawnPlan.alive - 1);
   updateRemainLabel();
 
-  // 破壊ログなど用途ごとに分岐したいなら by を利用
   if (fade) {
     const keepEid = String(eid);
     e.el.classList.add('dead');
-    // ★ ここが重要：フェード完了時点でも同じ個体かを確認
     setTimeout(() => {
       if (e.el.dataset.eid === keepEid && e.el.dataset.alive === "1") {
         e.el.dataset.alive = "0";
         releaseEnemyEl(e.el);
-      } else {
-        // 別個体に再利用されていたら触らない
       }
     }, 220);
   } else {
@@ -321,23 +318,20 @@ function damagePlayer(amount){
 }
 
 /* (12) ---------- 攻撃（連鎖） ---------- */
-// 敵の「画面中心」から距離・描画を行い、ズレを最小化
 function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
 
-  // 精霊の画面中心 → lane座標へ変換
   const sc = centerScreen(spiritEl);
   const sx = sc.x - laneRect.left;
   const sy = sc.y - laneRect.top;
 
   const r2 = lightning.range * lightning.range;
 
-  // 射程内候補：各敵の画面中心→lane座標で判定
   const cand = [];
   for (const e of enemies) {
-    const ec = centerScreen(e.el);            // 画面座標
-    const ex = ec.x - laneRect.left;          // lane
+    const ec = centerScreen(e.el);
+    const ex = ec.x - laneRect.left;
     const ey = ec.y - laneRect.top;
     const d2 = dist2(sx, sy, ex, ey);
     if (d2 <= r2) cand.push({ e, d2, ex, ey });
@@ -351,7 +345,6 @@ function tryAttack(dt) {
   let dmg = lightning.baseDmg;
   let dealtTotal = 0;
 
-  // 1本目：⚡ → 最も近い敵（candのex/eyを使う）
   const first = cand[0];
   spawnBeam(sx, sy, first.ex, first.ey);
   used.add(first.e.eid);
@@ -364,7 +357,6 @@ function tryAttack(dt) {
 
     if (i > 0) spawnBeam(prevX, prevY, pick.ex, pick.ey);
 
-    // ダメージ
     pick.e.hp -= dmg;
     dealtTotal += Math.max(0, dmg);
 
@@ -381,7 +373,6 @@ function tryAttack(dt) {
     dmg *= lightning.falloff;
   }
 
-  // 撃破処理（ここも eid 経由で安全に）
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
@@ -399,23 +390,20 @@ function tryAttack(dt) {
 }
 
 /* (13) ---------- ループ（移動/衝突/突破） ---------- */
-let last = performance.now();
+// ★★★ ここでは「宣言しない」：宣言は (17) に 1 回だけ！ ★★★
 
 function getSpiritCenter(){ return centerScreen(spiritEl); }
 function getEnemyCenter(e){ return centerScreen(e.el); }
 
 function gameLoop(now = performance.now()) {
-  // フレーム時間（ワープ防止でクランプ）
   let dt = (now - last) / 1000; last = now;
   dt = Math.min(dt, 0.033); // ≒30FPS上限
 
-  // 一時停止/タイトル中はロジック停止
   if (!gs.running || gs.paused) {
     requestAnimationFrame(gameLoop);
     return;
   }
 
-  // ★ レイアウト微揺れ対策：rectを定期リフレッシュ
   if (!laneRect) {
     measureRects();
   } else {
@@ -427,20 +415,17 @@ function gameLoop(now = performance.now()) {
     }
   }
 
-  const sc = getSpiritCenter(); // 精霊の画面中心（衝突判定に使う）
+  const sc = getSpiritCenter();
 
-  // --- 敵更新 ---
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     e.t += dt;
 
-    // 精霊の lane 座標（範囲にクランプ）
     let sxLane = sc.x - laneRect.left;
     let syLane = sc.y - laneRect.top;
     sxLane = Math.max(0, Math.min(laneRect.width,  sxLane));
     syLane = Math.max(0, Math.min(laneRect.height, syLane));
 
-    // ステアリング（目標速度へ補間）
     let dx = sxLane - e.x, dy = syLane - e.y;
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
@@ -452,7 +437,6 @@ function gameLoop(now = performance.now()) {
     e.vx += (desiredVx - e.vx) * steer;
     e.vy += (desiredVy - e.vy) * steer;
 
-    // 速度クランプ（暴走防止）
     const vmax = e.speed * 1.2;
     const vlen = Math.hypot(e.vx, e.vy) || 1;
     if (vlen > vmax) {
@@ -460,18 +444,14 @@ function gameLoop(now = performance.now()) {
       e.vx *= s; e.vy *= s;
     }
 
-    // サイン揺れ
     const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
 
-    // 位置更新（lane座標）
     e.x += e.vx * dt;
     e.y += (e.vy + sway * 0.8) * dt;
 
-    // DOM反映（transformのみ操作）
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-    // ---- 衝突判定（画面座標の円）----
-    const ec = getEnemyCenter(e); // 画面座標中心
+    const ec = getEnemyCenter(e);
     const dist = Math.hypot(sc.x - ec.x, sc.y - ec.y);
     if (dist <= (R_SPIRIT + R_ENEMY)) {
       const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
@@ -481,9 +461,8 @@ function gameLoop(now = performance.now()) {
       continue;
     }
 
-    // ---- 画面外（突破）判定：画面座標 + 余白で緩めに ----
     const br = laneRect;
-    const marginX = 120, marginY = 160; // 余白
+    const marginX = 120, marginY = 160;
     if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
         ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
       const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
@@ -494,13 +473,9 @@ function gameLoop(now = performance.now()) {
     }
   }
 
-  // --- 攻撃 ---
   tryAttack(dt);
-
-  // --- スポーン ---
   trySpawn(dt);
 
-  // --- クリア判定：出し切って盤面が空なら次へ ---
   if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
     nextStage();
   }
@@ -522,7 +497,6 @@ function setupStageCounters() {
 function startStageHead() {
   gs.isNight = (gs.stage === 10);
   setupStageCounters();
-  // 章頭でHP回復
   playerHp = playerHpMax;
   updatePlayerHpUI();
   measureRects();
@@ -563,7 +537,6 @@ function failStage() {
 }
 
 function clearAllEnemies() {
-  // 配列の個体をIDで安全に全削除
   while (enemies.length) {
     const { eid } = enemies[enemies.length - 1];
     removeEnemyById(eid, { by:'clear', fade:false });
@@ -674,6 +647,7 @@ const _failStage = failStage;
 failStage = function(){ _failStage(); emitStageChange(); };
 
 /* (17) ---------- 初期化 ---------- */
+// ★ ここで 1 回だけ宣言＆ init() で代入
 let last;
 function init() {
   measureRects();
