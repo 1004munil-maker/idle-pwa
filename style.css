@@ -390,7 +390,3 @@ body::after{
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
-
-/* 予備動作でプルプルさせたい等、自由に */
-.enemy.windup .icon { transform: scale(1.05); }
-.enemy.attacking .icon { transform: translateX(-2px); }
