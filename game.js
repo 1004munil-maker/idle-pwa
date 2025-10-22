@@ -1,13 +1,13 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v2 + Player HP)
-   by Loki（ロキ） for Munikun（むにくん）
+   Idle Lightning - game.js (Progression v3 + Player HP + API)
    ---------------------------------------------------------
-   変更点ハイライト：
-   - 自分HPバーとHUD表示を追加（衝突で減少、0で章頭リトライ）
-   - 敵見た目：🦂（swarm）/ 🦅（runner）/ 🦏（tank）
-   - リトライ後に即スポーンするバグ修正（カウンタ/タイマー初期化）
-   - 敵HPを以前の約半分に調整
-   - 既存の夜10%ダイヤ・段階/章/階システムは維持
+   機能:
+   - ステージ/章/階（30章でHP係数×1.5）
+   - 10面は夜：敵HP×2、10%でダイヤ
+   - 自分HPバー（衝突/突破で減少、0で章頭リトライ）
+   - 敵3種アイコン：🦂 swarm / 🦅 runner / 🦏 tank
+   - ビーム連鎖攻撃（減衰）
+   - 外部拡張用 GameAPI を公開（upgrades.js から利用）
    ========================================================= */
 
 /* (1) ---------- DOM参照 ---------- */
@@ -18,10 +18,10 @@ const diaEl    = document.getElementById('diamond');
 const dpsEl    = document.getElementById('dps');
 const chainEl  = document.getElementById('chain');
 const spiritEl = document.querySelector('.spirit');
-const playerHpBarEl = document.getElementById('player-hp');
-const playerHpFillEl = playerHpBarEl?.querySelector('.fill');
+const playerHpBarEl   = document.getElementById('player-hp');
+const playerHpFillEl  = playerHpBarEl?.querySelector('.fill');
 const playerHpLabelEl = document.getElementById('playerHpLabel');
-const stageLabelEl = document.getElementById('stageLabel');
+const stageLabelEl    = document.getElementById('stageLabel');
 
 // スタート画面
 const startScreenEl  = document.getElementById('start-screen');
@@ -29,7 +29,7 @@ const btnNew         = document.getElementById('btn-new');
 const btnContinue    = document.getElementById('btn-continue');
 const continueHintEl = document.getElementById('continue-hint');
 
-// メニュー操作
+// メニュー（任意：一時停止/再開/リトライ）
 const btnPause  = document.getElementById('btn-pause');
 const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
@@ -55,14 +55,15 @@ function logAttack(chainCount, totalDamage) {
 }
 
 /* (4) ---------- セーブ/ロード ---------- */
-const SAVE_KEY = 'idleLightningSaveV3';
+const SAVE_KEY = 'idleLightningSaveV4';
 function saveGame() {
   const data = {
     ts: Date.now(),
     gold, diamonds,
     floor: gs.floor, chapter: gs.chapter, stage: gs.stage, isNight: gs.isNight,
     hpScale: gs.hpScale,
-    playerHp, playerHpMax
+    playerHp, playerHpMax,
+    lightning: { baseDmg: lightning.baseDmg, cooldown: lightning.cooldown, range: lightning.range, chainCount: lightning.chainCount }
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -88,9 +89,12 @@ const gs = {
 let gold = 0;
 let diamonds = 0;
 let dpsSmoothed = 0;
-goldEl.textContent = gold;
-diaEl.textContent  = diamonds;
-dpsEl.textContent  = 0;
+function refreshCurrencies(){
+  goldEl.textContent = gold;
+  diaEl.textContent  = diamonds;
+  dpsEl.textContent  = Math.round(dpsSmoothed);
+}
+refreshCurrencies();
 
 // プレイヤーHP（表示も）
 let playerHpMax = 100;
@@ -104,14 +108,14 @@ updatePlayerHpUI();
 
 /* (6) ---------- 進行UI更新 ---------- */
 function updateStageLabel() {
-  stageLabelEl.textContent = `${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight ? ' 🌙' : ''}`;
+  if (stageLabelEl) stageLabelEl.textContent = `${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight ? ' 🌙' : ''}`;
 }
 updateStageLabel();
 
 /* (7) ---------- 雷 & 判定 ---------- */
 const lightning = {
   baseDmg: 8,
-  cooldown: 0.70,
+  cooldown: 0.70,  // 秒
   timer: 0,
   range: 380,
   chainCount: 2,     // =3体ヒット
@@ -122,12 +126,12 @@ const R_SPIRIT = 18; // 画面座標の半径
 const R_ENEMY  = 13;
 
 /* (8) ---------- 敵タイプ/プール/配列 ---------- */
-/* HPを前より“約半分”に調整 */
 const ENEMY_TYPES = {
-  swarm:  { speed:120, hp: 20, reward: 1, dmg: 8  }, // 旧40→20
-  runner: { speed:170, hp: 14, reward: 1, dmg: 10 }, // 旧28→14
-  tank:   { speed: 90, hp: 90, reward: 5, dmg: 20 }  // 旧180→90
+  swarm:  { speed:120, hp: 20, reward: 1, dmg:  8 }, // 🦂
+  runner: { speed:170, hp: 14, reward: 1, dmg: 10 }, // 🦅
+  tank:   { speed: 90, hp: 90, reward: 5, dmg: 20 }  // 🦏
 };
+const ENEMY_ICONS = { swarm: "🦂", runner: "🦅", tank: "🦏" };
 const SPAWN_WEIGHTS = [
   { type: 'swarm',  w: 0.60 },
   { type: 'runner', w: 0.25 },
@@ -139,25 +143,22 @@ function pickEnemyType() {
   return 'swarm';
 }
 
-// 敵アイコン（🦂/🦅/🦏）
-const ENEMY_ICONS = { swarm: "🦂", runner: "🦅", tank: "🦏" };
-
-// プール
+// 敵プール
 const enemyPool = [];
 function getEnemyEl() {
   const el = enemyPool.pop();
   if (el) return el;
   const e = document.createElement('div');
   e.className = 'enemy';
-  const hp = document.createElement('div'); hp.className = 'hp';
   const icon = document.createElement('span'); icon.className = 'icon';
+  const hp = document.createElement('div');   hp.className = 'hp';
   e.append(icon, hp);
   return e;
 }
 function releaseEnemyEl(el) { el.remove(); enemyPool.push(el); }
 const enemies = [];  // {el,type,x,y,vx,vy,speed,hp,maxHp,reward,dmg,t,swayAmp,swayFreq}
 
-/* (9) ---------- ステージ生成（出現数スケール等） ---------- */
+/* (9) ---------- ステージ・係数 ---------- */
 function stageTotalCount(chapter, stage) {
   const base = 8 + (stage - 1);              // 1-1:8 → 1-9:16 → 1-10:17
   return (stage === 10) ? Math.round(base * 2) : base;
@@ -166,12 +167,11 @@ function hpMultiplier() { return gs.hpScale * (gs.isNight ? 2.0 : 1.0); }
 const MAX_CONCURRENT = 40;
 const NIGHT_DIAMOND_RATE = 0.10;
 
-// ステージ進行用カウンタ
+// ステージカウンタ
 let spawnPlan = { total: 0, spawned: 0, alive: 0 };
 
-//* (10) ---------- スポーン制御 ---------- */
+/* (10) ---------- スポーン制御 ---------- */
 let laneWidthCached = 0, laneHeightCached = 0;
-
 function spawnEnemy(type = pickEnemyType()) {
   if (!laneRect) measureRects();
   laneWidthCached  = laneRect.width;
@@ -181,28 +181,17 @@ function spawnEnemy(type = pickEnemyType()) {
   const el = getEnemyEl();
   laneEl.appendChild(el);
 
-  // ★ 見た目：アイコンノードを保証（getEnemyElが古い場合でも安全）
+  // アイコン保証
   let iconEl = el.querySelector('.icon');
-  if (!iconEl) {
-    iconEl = document.createElement('div');
-    iconEl.className = 'icon';
-    el.insertBefore(iconEl, el.firstChild); // HPバーより前に表示
-  }
-  if (typeof ENEMY_ICONS !== 'undefined') {
-    iconEl.textContent = ENEMY_ICONS[type] || '👾';
-  } else {
-    iconEl.textContent = '👾';
-  }
+  if (!iconEl) { iconEl = document.createElement('span'); iconEl.className='icon'; el.prepend(iconEl); }
+  iconEl.textContent = ENEMY_ICONS[type] || '👾';
 
-  // 右端付近ランダム出現
+  // 出現位置
   const startX = laneWidthCached - 60 - Math.random() * 40;
-  const startY = Math.max(
-    16,
-    Math.min(
-      laneHeightCached - 16,
-      laneHeightCached * (0.10 + 0.80 * Math.random())
-    )
-  );
+  const startY = Math.max(16, Math.min(
+    laneHeightCached - 16,
+    laneHeightCached * (0.10 + 0.80 * Math.random())
+  ));
 
   // HPスケール
   const hpMul = hpMultiplier();
@@ -220,27 +209,23 @@ function spawnEnemy(type = pickEnemyType()) {
     vx: 0, vy: 0,
     speed: t.speed,
     hp: hpMax, maxHp: hpMax,
-    reward: t.reward,
-    dmg: Number.isFinite(t.dmg) ? t.dmg : 5, // ★ dmgを必ず持たせる
+    reward: t.reward, dmg: t.dmg,
     t: 0,
-    swayAmp: 6 + Math.random() * 10,
-    swayFreq: 1.0 + Math.random() * 0.8
+    swayAmp: 6 + Math.random()*10,
+    swayFreq: 1.0 + Math.random()*0.8
   });
 
   spawnPlan.spawned++;
   spawnPlan.alive++;
 }
 
-// スポーンタイミング（同時数でディレイ伸ばす）
+// ディレイ調整
 let spawnTimer = 0;
 let baseSpawnDelay = 800; // ms
-
 function trySpawn(dt) {
-  if (spawnPlan.spawned >= spawnPlan.total) return;       // 予定を出し切った
-  if (spawnPlan.alive   >= MAX_CONCURRENT) return;        // 同時数が多すぎ
+  if (spawnPlan.spawned >= spawnPlan.total) return;
+  if (spawnPlan.alive   >= MAX_CONCURRENT) return;
   spawnTimer += dt * 1000;
-
-  // 混雑時ほど遅らせる
   const dynamicDelay = baseSpawnDelay + Math.max(0, (spawnPlan.alive - 10) * 10);
   if (spawnTimer >= dynamicDelay) {
     spawnTimer = 0;
@@ -277,9 +262,9 @@ function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
 
-const sc = centerScreen(spiritEl);
-const sx = sc.x - laneRect.left;
-const sy = sc.y - laneRect.top;
+  const sc = centerScreen(spiritEl);
+  const sx = sc.x - laneRect.left;
+  const sy = sc.y - laneRect.top;
 
   const r2 = lightning.range * lightning.range;
   const cand = [];
@@ -296,7 +281,6 @@ const sy = sc.y - laneRect.top;
   let dmg = lightning.baseDmg;
   let dealtTotal = 0;
 
-  // 一発目：⚡→最も近い敵
   const first = cand[0].e;
   spawnBeam(sx, sy, first.x, first.y);
   used.add(first);
@@ -327,7 +311,6 @@ const sy = sc.y - laneRect.top;
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
-      // 夜は10%で💎
       if (gs.isNight && Math.random() < NIGHT_DIAMOND_RATE) {
         diamonds++; diaEl.textContent = diamonds;
         addLog('💎 ダイヤを獲得！', 'gain');
@@ -344,36 +327,42 @@ const sy = sc.y - laneRect.top;
   lightning.timer = lightning.cooldown;
 }
 
-/* (13) ---------- ループ（移動/衝突/突破=失敗 or 低ダメ） ---------- */
+/* (13) ---------- ループ（移動/衝突/突破=被ダメ） ---------- */
 let last = performance.now();
 
 function getSpiritCenter(){ return centerScreen(spiritEl); }
 function getEnemyCenter(e){ return centerScreen(e.el); }
 
+function damagePlayer(amount){
+  playerHp = Math.max(0, playerHp - amount);
+  updatePlayerHpUI();
+  if (playerHp <= 0) {
+    addLog('💥 HPが0になった…章の初めからリトライ！', 'alert');
+    failStage();
+  }
+}
+
 function gameLoop(now = performance.now()) {
   let dt = (now - last) / 1000; last = now;
-  dt = Math.min(dt, 0.033); // 33ms上限（ワープ防止）
+  dt = Math.min(dt, 0.033);
 
   if (!gs.running || gs.paused) { requestAnimationFrame(gameLoop); return; }
 
-  // ★ レイアウト保守（たまに0幅になるブラウザ対策）
   if (!laneRect || laneRect.width === 0) measureRects();
 
   const sc = getSpiritCenter();
 
-  // --- 敵更新 ---
-  for (let i = enemies.length - 1; i >= 0; i--) {# 8080で配信（カレントディレクトリをルートにする）
-python3 -m http.server 8080
+  for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     e.t += dt;
 
-    // 精霊の lane 座標（範囲内にクランプして暴走防止）
+    // 精霊の lane 座標（クランプ）
     let sxLane = sc.x - laneRect.left;
     let syLane = sc.y - laneRect.top;
     sxLane = Math.max(0, Math.min(laneRect.width,  sxLane));
     syLane = Math.max(0, Math.min(laneRect.height, syLane));
 
-    // ステアリング：目標速度へ補間
+    // ステアリング
     let dx = sxLane - e.x, dy = syLane - e.y;
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
@@ -388,58 +377,48 @@ python3 -m http.server 8080
     // 速度クランプ
     const vmax = e.speed * 1.2;
     const vlen = Math.hypot(e.vx, e.vy) || 1;
-    if (vlen > vmax) {
-      const s = vmax / vlen;
-      e.vx *= s; e.vy *= s;
-    }
+    if (vlen > vmax) { const s = vmax / vlen; e.vx *= s; e.vy *= s; }
 
     // サイン揺れ
     const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
 
-    // 位置更新（lane座標）
+    // 位置更新
     e.x += e.vx * dt;
     e.y += (e.vy + sway * 0.8) * dt;
 
-    // DOM反映（transformのみ）
+    // DOM反映
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-    // ---- 衝突判定（画面座標）----
-    const ec = getEnemyCenter(e); // 画面座標中心
+    // 衝突（被ダメ）→ 敵は消滅
+    const ec = getEnemyCenter(e);
     const dist = Math.hypot(sc.x - ec.x, sc.y - ec.y);
     if (dist <= (R_SPIRIT + R_ENEMY)) {
-      const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
-      addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-      damagePlayer(hitDmg);            // ★ HP減少（外で定義済み）
-      releaseEnemyEl(e.el);            // 敵は消す
+      addLog(`⚠️ 被弾：${e.type}（-${e.dmg} HP）`, 'alert');
+      damagePlayer(e.dmg);
+      releaseEnemyEl(e.el);
       enemies.splice(i, 1);
       spawnPlan.alive--;
       continue;
     }
 
-    // ---- 画面外（突破）判定：画面座標 + 余白でゆるく ----
-    {
-      const br = laneRect;
-      const marginX = 120, marginY = 160;
-      if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
-          ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-        const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
-        addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
-        damagePlayer(escDmg);
-        releaseEnemyEl(e.el);
-        enemies.splice(i, 1);
-        spawnPlan.alive--;
-        continue;
-      }
+    // 画面外（突破）→ 少量被ダメ
+    const br = laneRect;
+    const marginX = 120, marginY = 160;
+    if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
+        ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+      const escDmg = Math.ceil(e.dmg * 0.5);
+      addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
+      damagePlayer(escDmg);
+      releaseEnemyEl(e.el);
+      enemies.splice(i, 1);
+      spawnPlan.alive--;
+      continue;
     }
   }
 
-  // --- 攻撃処理 ---
+  // 攻撃・スポーン・クリア判定
   tryAttack(dt);
-
-  // --- スポーン ---
   trySpawn(dt);
-
-  // --- クリア判定：出し切って盤面が空なら次へ ---
   if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
     nextStage();
   }
@@ -458,10 +437,9 @@ function setupStageCounters() {
 }
 
 function startStageHead() {
-  // 夜判定
   gs.isNight = (gs.stage === 10);
   setupStageCounters();
-  // HPは章頭で全回復（好みで調整OK）
+  // 章頭でHP回復
   playerHp = playerHpMax;
   updatePlayerHpUI();
 }
@@ -481,24 +459,19 @@ function nextStage() {
       addLog(`🔺 階層UP！ いま ${gs.floor}F（HP係数×${gs.hpScale.toFixed(2)}）`, 'gain');
     }
   }
-
-  // 次ステージ準備
   clearAllEnemies();
   startStageHead();
   saveGame();
 }
 
 function failStage() {
-  // 同章の1へ
   clearAllEnemies();
   gs.stage = 1;
   gs.isNight = false;
-  // タイマー/カウンタも初期化（★リトライで湧かない問題の対策）
   spawnTimer = 0;
   baseSpawnDelay = 800;
   setupStageCounters();
   addLog(`↩︎ リトライ：${gs.chapter}-1 / ${gs.floor}F から`, 'alert');
-  // すぐ再開
   gs.paused = false;
   gs.running = true;
   startStageHead();
@@ -516,11 +489,11 @@ function clearAllEnemies() {
 /* (15) ---------- スタート画面 & 一時停止/再開/リトライ ---------- */
 function showStartScreen() {
   if (hasSave()) {
-    btnContinue.disabled = false;
-    continueHintEl.textContent = '前回の続きから再開できます。';
+    btnContinue && (btnContinue.disabled = false);
+    if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。';
   } else {
-    btnContinue.disabled = true;
-    continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。';
+    btnContinue && (btnContinue.disabled = true);
+    if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。';
   }
   startScreenEl?.setAttribute('aria-hidden', 'false');
   gs.running = false;
@@ -533,19 +506,21 @@ function hideStartScreen() {
   startStageHead();
 }
 
+// はじめから/つづきから
 btnNew?.addEventListener('click', () => {
-  gold = 0; diamonds = 0;
-  goldEl.textContent = gold; diaEl.textContent = diamonds;
+  gold = 0; diamonds = 0; refreshCurrencies();
   gs.floor = 1; gs.chapter = 1; gs.stage = 1; gs.isNight = false; gs.hpScale = 1.0;
   playerHpMax = 100; playerHp = playerHpMax; updatePlayerHpUI();
+  lightning.baseDmg = 8; lightning.cooldown = 0.70; lightning.range = 380; lightning.chainCount = 2;
   saveGame();
   hideStartScreen();
 });
 btnContinue?.addEventListener('click', () => {
   const data = loadGame();
   if (data) {
-    gold = data.gold ?? gold;       goldEl.textContent = gold;
-    diamonds = data.diamonds ?? 0;  diaEl.textContent = diamonds;
+    gold = data.gold ?? gold;
+    diamonds = data.diamonds ?? 0;
+    refreshCurrencies();
     gs.floor = data.floor ?? 1;
     gs.chapter = data.chapter ?? 1;
     gs.stage = data.stage ?? 1;
@@ -554,31 +529,67 @@ btnContinue?.addEventListener('click', () => {
     playerHpMax = data.playerHpMax ?? 100;
     playerHp    = data.playerHp ?? playerHpMax;
     updatePlayerHpUI();
+    if (data.lightning) {
+      lightning.baseDmg = data.lightning.baseDmg ?? lightning.baseDmg;
+      lightning.cooldown= data.lightning.cooldown ?? lightning.cooldown;
+      lightning.range   = data.lightning.range ?? lightning.range;
+      lightning.chainCount = data.lightning.chainCount ?? lightning.chainCount;
+      chainEl.textContent = `${lightning.chainCount}/15`;
+    }
   }
   hideStartScreen();
 });
 
-// 一時停止/再開/リトライ
-btnPause?.addEventListener('click', () => {
-  if (!gs.running) return;
-  gs.paused = true;
-  addLog('⏸ 一時停止', 'dim');
-});
-btnResume?.addEventListener('click', () => {
-  if (!gs.running) return;
-  gs.paused = false;
-  addLog('▶ 再開', 'dim');
-});
-btnRetry?.addEventListener('click', () => {
-  if (!gs.running) return;
-  addLog('↻ リトライ（章の頭へ）', 'alert');
-  failStage();
-});
+// 一時停止/再開/リトライ（存在すれば動かす）
+btnPause?.addEventListener('click', () => { if (!gs.running) return; gs.paused = true;  addLog('⏸ 一時停止', 'dim'); });
+btnResume?.addEventListener('click',()=> { if (!gs.running) return; gs.paused = false; addLog('▶ 再開',   'dim'); });
+btnRetry?.addEventListener('click', () => { if (!gs.running) return; addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
 
-// オートセーブ（実行中のみ）
+// オートセーブ
 setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
-/* (16) ---------- 初期化 ---------- */
+/* (16) ---------- GameAPI 公開（upgrades.js から使う） ---------- */
+const listeners = { stageChange: new Set() };
+function emitStageChange(){ listeners.stageChange.forEach(fn=>{ try{ fn(getStageInfo()); }catch{} }); }
+
+function getStageInfo(){ return { floor:gs.floor, chapter:gs.chapter, stage:gs.stage, isNight:gs.isNight }; }
+
+window.GameAPI = {
+  // 通貨
+  getGold: ()=>gold,
+  addGold: (v)=>{ gold+=v; refreshCurrencies(); saveGame(); },
+  spendGold: (v)=>{ if (gold>=v){ gold-=v; refreshCurrencies(); saveGame(); return true;} return false; },
+  getDiamonds: ()=>diamonds,
+  addDiamonds: (v)=>{ diamonds+=v; refreshCurrencies(); saveGame(); },
+
+  // 雷パラメータ
+  lightning,
+  setBaseDmg: (v)=>{ lightning.baseDmg = Math.max(1, v); saveGame(); },
+  setCooldown: (v)=>{ lightning.cooldown = Math.max(0.2, v); saveGame(); },
+  setRange: (v)=>{ lightning.range = Math.max(60, v); saveGame(); },
+  setChain: (v)=>{ lightning.chainCount = Math.max(0, Math.min(14, v)); chainEl.textContent = `${lightning.chainCount}/15`; saveGame(); },
+
+  // プレイヤー
+  getPlayerHp: ()=>({ hp:playerHp, max:playerHpMax }),
+  healPlayer: (v)=>{ playerHp=Math.min(playerHpMax, playerHp+v); updatePlayerHpUI(); saveGame(); },
+  setPlayerHpMax: (m)=>{ playerHpMax=Math.max(1,m); playerHp=Math.min(playerHp,playerHpMax); updatePlayerHpUI(); saveGame(); },
+
+  // ステージ情報
+  getStageInfo,
+  onStageChange: (fn)=>{ listeners.stageChange.add(fn); },
+  offStageChange:(fn)=>{ listeners.stageChange.delete(fn); },
+
+  // ログ
+  addLog,
+};
+
+// ステージ遷移時に通知
+const _nextStage = nextStage;
+nextStage = function(){ _nextStage(); emitStageChange(); };
+const _failStage = failStage;
+failStage = function(){ _failStage(); emitStageChange(); };
+
+/* (17) ---------- 初期化 ---------- */
 function init() {
   measureRects();
   addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
