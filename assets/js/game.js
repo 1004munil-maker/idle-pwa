@@ -501,34 +501,24 @@ function gameLoop(now = performance.now()) {
 
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-  // ---- 衝突（見た目そのもの＝アイコン矩形で判定）----
-{
-  // 敵はコンテナではなく .icon の見た目サイズで測る
-  const iconEl = e.el.querySelector('.icon');
-  const er = (iconEl || e.el).getBoundingClientRect();
-  const sr = spiritEl.getBoundingClientRect();
+    // ---- 衝突（★各要素の実サイズで判定 + フェード除去）----
+    const ec  = getEnemyCenter(e);   // 画面座標（敵中心）
+    const sc2 = getSpiritCenter();   // 画面座標（精霊中心）
+    const dist = Math.hypot(sc2.x - ec.x, sc2.y - ec.y);
 
-  // 画面座標の中心（transform 適用後の見た目通り）
-  const ecx = er.left + er.width  / 2;
-  const ecy = er.top  + er.height / 2;
-  const scx = sr.left + sr.width  / 2;
-  const scy = sr.top  + sr.height / 2;
+    // 各要素の見た目サイズから半径を毎フレーム取得（0幅対策にフォールバック）
+    const er = e.el.getBoundingClientRect();
+    const sr = spiritEl.getBoundingClientRect();
+    const rEnemy  = Math.max(er.width, er.height) * 0.5 || 14;
+    const rSpirit = Math.max(sr.width, sr.height) * 0.5 || 18;
 
-  // 半径は見た目サイズから
-  const rEnemy  = (Math.max(er.width, er.height)  * 0.5) || 14;
-  const rSpirit = (Math.max(sr.width, sr.height)  * 0.5) || 18;
-
-  const dist = Math.hypot(scx - ecx, scy - ecy);
-
-  // わずかに緩める（ピタ止まり対策）
-  if (dist <= (rSpirit + rEnemy + 1)) {
-    const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
-    addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-    damagePlayer(hitDmg);
-    removeEnemyById(e.eid, { by:'collision', fade:true });
-    continue;
-  }
-}
+    if (dist <= (rSpirit + rEnemy)) {
+      const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+      addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
+      damagePlayer(hitDmg);
+      removeEnemyById(e.eid, { by:'collision', fade:true });
+      continue;
+    }
 
     // ---- 突破（画面外）----
     const br = laneRect;
