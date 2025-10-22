@@ -50,15 +50,39 @@ window.addEventListener('orientationchange', () => setTimeout(measureRects, 200)
 
 /* ========== Log ========== */
 const MAX_LOG = 50;
+
 function addLog(msg, kind = 'info') {
-  if (!logEl) { console.log('[LOG]', kind, msg); return; } // フォールバック
+  // #log は毎回取り直して確実に掴む（初期キャプチャの null 問題を回避）
+  const root = document.getElementById('log');
+  if (!root) {
+    // 最低限デバッグは残す（本番で邪魔なら消してOK）
+    try { console.warn('[addLog] #log not found:', msg); } catch {}
+    return;
+  }
+
+  // エントリー要素生成
   const div = document.createElement('div');
   div.className = `log-entry ${kind}`;
   div.textContent = msg;
-  if (logEl.firstChild) logEl.insertBefore(div, logEl.firstChild);
-  else logEl.appendChild(div);
-  while (logEl.childNodes.length > MAX_LOG) logEl.removeChild(logEl.lastChild);
+
+  // 先頭に挿入。ただし「.log-entry の先頭」の前に入れる。
+  const firstEntry = root.querySelector('.log-entry');
+  if (firstEntry) {
+    root.insertBefore(div, firstEntry);
+  } else {
+    // 最初の1件目：ボタン(#btn-bgm)の直後に入れると見た目が安定
+    const btn = root.querySelector('#btn-bgm');
+    if (btn && btn.nextSibling) root.insertBefore(div, btn.nextSibling);
+    else root.appendChild(div);
+  }
+
+  // 古いログの剪定は「.log-entry」だけを数える（ボタンは消さない）
+  const entries = root.querySelectorAll('.log-entry');
+  for (let i = entries.length - 1; i >= MAX_LOG; i--) {
+    entries[i].remove();
+  }
 }
+
 function logAttack(chainCount, totalDamage) {
   addLog(`連鎖×${chainCount}！ 合計 ${Math.round(totalDamage)} ダメージ`, 'gain');
 }
