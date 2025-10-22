@@ -1,5 +1,5 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v5.3 Stable)
+   Idle Lightning - game.js (Progression v5.3 Stable, collision fix)
    ---------------------------------------------------------
    01) DOM参照
    02) レイアウト計測
@@ -14,7 +14,7 @@
    11) ビーム演出
    12) ヘルパ（中心/距離/安全削除/被ダメ）
    13) 攻撃（連鎖）★Crit & Gold倍率適用
-   14) ループ（移動/衝突[フェード除去]/突破）
+   14) ループ（移動/衝突/突破）
    15) ステージ遷移（★クリアEXP）
    16) Start/Continue/一時停止
    17) GameAPI 公開
@@ -46,7 +46,7 @@ const continueHintEl = document.getElementById('continue-hint');
 const btnPause  = document.getElementById('btn-pause');
 const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
-const btnStatus = document.getElementById('btn-status'); // ★ステータスボタン
+const btnStatus = document.getElementById('btn-status');
 
 /* 02) ---------- レイアウト計測 ---------- */
 let laneRect;
@@ -139,10 +139,10 @@ function updateRemainLabel() {
 }
 updateStageLabel();
 
-/* 07) ---------- 雷 & 判定（基準値は Status で上書き可） ---------- */
+/* 07) ---------- 雷 & 判定 ---------- */
 const lightning = {
   baseDmg: 8,
-  cooldown: 0.70,
+  cooldown: 0.70,   // Status.initで cooldownBase に退避される
   cooldownBase: undefined,
   range: 380,
   baseRange: undefined,
@@ -151,25 +151,11 @@ const lightning = {
 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 
-// ★固定半径は削除し、実サイズから動的に算出
-function getHitRadii() {
-  // 精霊
-  const sr = spiritEl?.getBoundingClientRect();
-  const rSpirit = sr ? Math.max(sr.width, sr.height) * 0.5 : 20; // フォールバック20
-
-  // 代表的な敵（なければフォールバック）
-  const anyEnemy = document.querySelector('.enemy');
-  const er = anyEnemy?.getBoundingClientRect();
-  const rEnemy = er ? Math.max(er.width, er.height) * 0.5 : 16;  // フォールバック16
-
-  return { rSpirit, rEnemy };
-}
-
 /* 08) ---------- 敵タイプ/プール/配列/ID ---------- */
 const ENEMY_TYPES = {
   swarm:  { speed:120, hp: 20, reward: 1, dmg:  8 },
   runner: { speed:170, hp: 14, reward: 1, dmg: 10 },
-  tank:   { speed: 90, hp: 90, reward: 5, dmg: 20 }
+  tank:   { speed: 90,  hp: 90, reward: 5, dmg: 20 }
 };
 const ENEMY_ICONS = { swarm: "🦂", runner: "🦅", tank: "🦏" };
 const SPAWN_WEIGHTS = [
@@ -197,7 +183,7 @@ function getEnemyEl() {
 }
 function releaseEnemyEl(el) { el.remove(); enemyPool.push(el); }
 
-// ★ 8.5) 再利用リセット
+// ★ 再利用リセット
 function resetEnemyEl(el){
   el.className = 'enemy';
   el.style.cssText = '';
@@ -236,7 +222,7 @@ function spawnEnemy(type = pickEnemyType()) {
 
   const t  = ENEMY_TYPES[type];
   const el = getEnemyEl();
-  resetEnemyEl(el); // ★透明化の根絶
+  resetEnemyEl(el);
 
   const eid = enemySeq++;
   el.dataset.eid = String(eid);
@@ -316,6 +302,7 @@ function dist2(ax, ay, bx, by) {
   const dx = ax - bx, dy = ay - by;
   return dx * dx + dy * dy;
 }
+
 // ★EXPフォールバック（Exp未読込でも動く）
 const ExpAPI = {
   expFromKill(gs, type){
@@ -413,7 +400,6 @@ function tryAttack(dt) {
     let mul = 1;
     if (window.Status && Math.random() < window.Status.getCritChance()) {
       mul = window.Status.getCritMul();
-      // pick.e.el.classList.add('hit-crit'); // 演出したければ
     }
 
     pick.e.hp -= dmg * mul;
@@ -444,8 +430,10 @@ function tryAttack(dt) {
       const gainG = Math.max(1, Math.round(e.reward * gMul));
       gold += gainG; goldEl.textContent = gold;
 
-      // ★EXP: キル時
-      ExpAPI.addExp(ExpAPI.expFromKill(gs, e.type), 'kill');
+      // ★EXP: キル時（ログも出す）
+      const expGain = ExpAPI.expFromKill(gs, e.type);
+      ExpAPI.addExp(expGain, 'kill');
+      addLog(`+${expGain} EXP (kill)`, 'gain');
 
       removeEnemyById(e.eid, { by:'beam', fade:true });
     }
@@ -513,20 +501,24 @@ function gameLoop(now = performance.now()) {
 
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-    // ---- 衝突（★フェード除去 + 被ダメ）----
-    // ---- 衝突（★フェード除去 + 被ダメ）----
-const ec = getEnemyCenter(e);          // 画面座標（中心）
-const sc2 = getSpiritCenter();         // 画面座標（中心）
-const dist = Math.hypot(sc2.x - ec.x, sc2.y - ec.y);
-const { rSpirit, rEnemy } = getHitRadii();  // 実サイズ半径
+    // ---- 衝突（★各要素の実サイズで判定 + フェード除去）----
+    const ec  = getEnemyCenter(e);   // 画面座標（敵中心）
+    const sc2 = getSpiritCenter();   // 画面座標（精霊中心）
+    const dist = Math.hypot(sc2.x - ec.x, sc2.y - ec.y);
 
-if (dist <= (rSpirit + rEnemy)) {
-  const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
-  addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-  damagePlayer(hitDmg);
-  removeEnemyById(e.eid, { by:'collision', fade:true });
-  continue;
-}
+    // 各要素の見た目サイズから半径を毎フレーム取得（0幅対策にフォールバック）
+    const er = e.el.getBoundingClientRect();
+    const sr = spiritEl.getBoundingClientRect();
+    const rEnemy  = Math.max(er.width, er.height) * 0.5 || 14;
+    const rSpirit = Math.max(sr.width, sr.height) * 0.5 || 18;
+
+    if (dist <= (rSpirit + rEnemy)) {
+      const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+      addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
+      damagePlayer(hitDmg);
+      removeEnemyById(e.eid, { by:'collision', fade:true });
+      continue;
+    }
 
     // ---- 突破（画面外）----
     const br = laneRect;
@@ -573,8 +565,10 @@ function startStageHead() {
 function nextStage() {
   addLog(`✅ クリア：${gs.chapter}-${gs.stage} / ${gs.floor}F`, 'gain');
 
-  // ★ EXP: ステージクリア時ボーナス
-  ExpAPI.addExp(ExpAPI.expFromStageClear(gs), 'clear');
+ // EXP: ステージクリア時ボーナス（ログも出す）
+  const clearExp = ExpAPI.expFromStageClear(gs);  
+  ExpAPI.addExp(clearExp, 'clear');
+  addLog(`+${clearExp} EXP (clear)`, 'gain');
 
   gs.stage += 1;
   if (gs.stage > 10) {
@@ -729,17 +723,16 @@ window.addEventListener('load', () => {
   init();
   showStartScreen();
 
-  // ★ Status 初期化（lightning の基準値退避＆反映）
+  // Status 初期化（lightning の基準値退避＆反映）
   setTimeout(()=> {
     if (window.Status && window.GameAPI){
-      // 初回の基準退避
       if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown;
       if (lightning.baseRange==null)    lightning.baseRange    = lightning.range;
       window.Status.init(window.GameAPI);
     }
   }, 0);
 
-  // ★ ステータスメニュー
+  // ステータスメニュー
   btnStatus?.addEventListener('click', ()=>{
     if (window.Status && window.GameAPI) window.Status.open(window.GameAPI);
   });
