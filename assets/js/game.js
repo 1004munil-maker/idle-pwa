@@ -501,38 +501,59 @@ function gameLoop(now = performance.now()) {
 
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-    // ---- 衝突（★各要素の実サイズで判定 + フェード除去）----
-    const ec  = getEnemyCenter(e);   // 画面座標（敵中心）
-    const sc2 = getSpiritCenter();   // 画面座標（精霊中心）
-    const dist = Math.hypot(sc2.x - ec.x, sc2.y - ec.y);
+    // ---- 衝突（lane座標で判定 + 押し込み + フェード除去）----
+{
+  // 精霊の中心を lane 座標へ変換（※移動も lane 座標なので合わせる）
+  const sc = getSpiritCenter(); // 画面座標
+  const sxLane = Math.max(0, Math.min(laneRect.width,  sc.x - laneRect.left));
+  const syLane = Math.max(0, Math.min(laneRect.height, sc.y - laneRect.top));
 
-    // 各要素の見た目サイズから半径を毎フレーム取得（0幅対策にフォールバック）
-    const er = e.el.getBoundingClientRect();
-    const sr = spiritEl.getBoundingClientRect();
-    const rEnemy  = Math.max(er.width, er.height) * 0.5 || 14;
-    const rSpirit = Math.max(sr.width, sr.height) * 0.5 || 18;
+  // 敵の中心は e.x/e.y（すでに lane 座標）
+  const dx = sxLane - e.x;
+  const dy = syLane - e.y;
+  const dist2Lane = dx*dx + dy*dy;
 
-    if (dist <= (rSpirit + rEnemy+100)) {
-      const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
-      addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-      damagePlayer(hitDmg);
-      removeEnemyById(e.eid, { by:'collision', fade:true });
-      continue;
-    }
+  // 当たり半径（取りこぼし防止に margin 少し足す）
+  const rSpirit = 18;   // 精霊の当たり半径（見た目より少し大きめでもOK）
+  const rEnemy  = 14;   // 敵の当たり半径
+  const margin  = 3;    // 取りこぼし防止マージン
+  const rr = rSpirit + rEnemy + margin;
 
-    // ---- 突破（画面外）----
-    const br = laneRect;
-    const marginX = 120, marginY = 160;
-    if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
-        ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-      const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
-      addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
-      damagePlayer(escDmg);
-      removeEnemyById(e.eid, { by:'escape', fade:false });
-      continue;
-    }
+  // ★ヒット判定（lane座標で距離比較）
+  if (dist2Lane <= rr * rr) {
+    const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+    addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
+    damagePlayer(hitDmg);
+    removeEnemyById(e.eid, { by:'collision', fade:true });
+    continue;
   }
 
+  // ★接近時の押し込み（“精霊の前で止まる”見た目を防ぐ）
+  const engage = 42;        // この距離内なら押し込む
+  if (dist2Lane < engage * engage) {
+    const push = 0.12;      // 押し込み係数（0.10〜0.18くらいで調整）
+    e.x += dx * push;
+    e.y += dy * push;
+    e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
+  }
+}
+
+// ---- 突破（画面外）----
+// ※これは画面座標でOK（境界は画面基準だから）
+{
+  const ec = getEnemyCenter(e); // 画面座標（敵中心）
+  const br = laneRect;
+  const marginX = 120, marginY = 160;
+  if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
+      ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+    const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
+    addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
+    damagePlayer(escDmg);
+    removeEnemyById(e.eid, { by:'escape', fade:false });
+    continue;
+  }
+}
+}
   tryAttack(dt);
   trySpawn(dt);
 
