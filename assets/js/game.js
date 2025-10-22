@@ -272,7 +272,10 @@ function spawnEnemy(type = pickEnemyType()) {
     // strike 中のアニメ用
     strikeFromX: 0, strikeFromY: 0,
     strikeToX: 0,   strikeToY: 0,
-    strikeHitDone: false
+    strikeHitDone: false,
+　  // recoil（後退）補間用
+  　recoilFromX: 0, recoilFromY: 0,
+  　recoilToX: 0,   recoilToY: 0,
   });
 
   spawnPlan.spawned++;
@@ -514,15 +517,16 @@ function gameLoop(now = performance.now()) {
     const dist = Math.hypot(dx, dy) || 1;
     const nx = dx / dist, ny = dy / dist;
 
-    // 状態遷移
-    const A = e.def.atk;
+        // 状態遷移
+    const A  = e.def.atk;
     const rE = enemyRadius(e);
     const rr = rS + rE + HIT_MARGIN;
     const inMelee = dist <= Math.max(rr, A.range);
 
     if (e.state === 'chase') {
       // 接近：通常移動
-      const desiredVx = nx * e.speed, desiredVy = ny * e.speed;
+      const desiredVx = nx * e.speed;
+      const desiredVy = ny * e.speed;
       const steer = 0.5;
       e.vx += (desiredVx - e.vx) * steer;
       e.vy += (desiredVy - e.vy) * steer;
@@ -547,13 +551,19 @@ function gameLoop(now = performance.now()) {
       }
     }
     else if (e.state === 'windup') {
-      // その場で 予備動作
+      // その場で予備動作
       if (e.st >= A.windup) {
-        // strike 先の座標（左へ lunge、視覚上の「前」に見せたいなら nx 方向でもOK）
-        e.strikeFromX = e.x; e.strikeFromY = e.y;
-        // あなたのUIが「左＝前」なら X マイナス方向へ。nxで精霊方向へ突くなら nx/ny を使用。
+        e.strikeFromX = e.x;
+        e.strikeFromY = e.y;
+
+        // 左へ突く（UIが左=前の想定）
         e.strikeToX   = e.x - A.lunge;
         e.strikeToY   = e.y;
+
+        // ★精霊方向へ突きたい場合は下の2行に差し替え
+        // e.strikeToX = e.x + nx * A.lunge;
+        // e.strikeToY = e.y + ny * A.lunge;
+
         e.strikeHitDone = false;
         e.state = 'strike';
         e.st = 0;
@@ -567,31 +577,39 @@ function gameLoop(now = performance.now()) {
       e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
       e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
 
-      // ダメージは strike の終了タイミング（= windup + active）で入れる
+      // ダメージは strike 終了タイミングで一度だけ与える → 消さずに recoil へ
       if (!e.strikeHitDone && e.st >= A.active) {
         e.strikeHitDone = true;
-        const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+        const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
         addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
         damagePlayer(hitDmg);
 
-        // 攻撃後はすぐ消える（演出は CSS 側で .dead など使うなら fade:true）
-        removeEnemyById(e.eid, { by:'attack', fade:true });
-        continue; // 次の敵へ
-      }
+        // recoil（後退）準備：突く前の位置に戻す
+        e.recoilFromX = e.x;  // いまの位置（突き終わり）
+        e.recoilFromY = e.y;
+        e.recoilToX   = e.strikeFromX; // 突き前の位置へ戻る
+        e.recoilToY   = e.strikeFromY;
 
-      // strike 終了後は recoil へ（※実質 remove するので到達しない想定）
-      if (e.st >= A.active) {
         e.state = 'recoil';
         e.st = 0;
+        e.atkCool = Math.max(0, 1 / Math.max(0.01, A.rate)); // 次の攻撃までのクール
         e.el.classList.remove('pose-strike');
+        e.el.classList.add('pose-recoil');
       }
     }
     else if (e.state === 'recoil') {
-      // 少し硬直
+      // 後退モーション（A.recoil の間で線形補間）
+      const t = Math.min(1, e.st / A.recoil);
+      const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
+      const ry = e.recoilFromY + (e.recoilToY - e.recoilFromY) * t;
+      e.x = rx;
+      e.y = ry;
+
+      // 終わったら chase へ
       if (e.st >= A.recoil) {
         e.state = 'chase';
         e.st = 0;
-        e.atkCool = Math.max(0, 1 / Math.max(0.01, A.rate)); // 次の攻撃までのCD
+        e.el.classList.remove('pose-recoil');
       }
     }
 
