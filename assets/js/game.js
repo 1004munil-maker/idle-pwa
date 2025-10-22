@@ -1,13 +1,14 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v3 + Player HP + API)
+   Idle Lightning - game.js (Progression v4 Stable)
    ---------------------------------------------------------
-   機能:
+   含まれる機能：
    - ステージ/章/階（30章でHP係数×1.5）
    - 10面は夜：敵HP×2、10%でダイヤ
-   - 自分HPバー（衝突/突破で減少、0で章頭リトライ）
-   - 敵3種アイコン：🦂 swarm / 🦅 runner / 🦏 tank
-   - ビーム連鎖攻撃（減衰）
-   - 外部拡張用 GameAPI を公開（upgrades.js から利用）
+   - 自分HP：衝突/突破で減少、0で章頭リトライ
+   - 敵3種アイコン：🦂 swarm / 🦅 runner / 🦏 tank（HPを前版の約半分）
+   - ビーム連鎖攻撃（距離減衰）
+   - 安定化：画面中心ベースの衝突/攻撃、Rectリフレッシュ、突破余白
+   - 拡張用 GameAPI（upgrades.js など外部から操作・購買可能）
    ========================================================= */
 
 /* (1) ---------- DOM参照 ---------- */
@@ -63,7 +64,12 @@ function saveGame() {
     floor: gs.floor, chapter: gs.chapter, stage: gs.stage, isNight: gs.isNight,
     hpScale: gs.hpScale,
     playerHp, playerHpMax,
-    lightning: { baseDmg: lightning.baseDmg, cooldown: lightning.cooldown, range: lightning.range, chainCount: lightning.chainCount }
+    lightning: {
+      baseDmg: lightning.baseDmg,
+      cooldown: lightning.cooldown,
+      range: lightning.range,
+      chainCount: lightning.chainCount
+    }
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
@@ -251,8 +257,27 @@ function spawnBeam(x1, y1, x2, y2, life = 0.12) {
   setTimeout(() => { el.classList.remove('fade'); releaseBeamEl(el); }, (life * 1000) | 0);
 }
 
-// (12) ---------- 攻撃（連鎖） ----------
-// 置き換え版：敵の「画面中心」から距離と描画を行う
+/* (=) ---------- ヘルパ（画面中心 & 距離二乗 & プレイヤー被ダメ） ---------- */
+// ※ (11) の直後、(12) の前
+function centerScreen(el) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+function dist2(ax, ay, bx, by) {
+  const dx = ax - bx, dy = ay - by;
+  return dx * dx + dy * dy;
+}
+function damagePlayer(amount) {
+  playerHp = Math.max(0, playerHp - (Number.isFinite(amount) ? amount : 0));
+  updatePlayerHpUI();
+  if (playerHp <= 0) {
+    addLog('💥 HPが0になった…章の初めからリトライ！', 'alert');
+    failStage();
+  }
+}
+
+/* (12) ---------- 攻撃（連鎖） ---------- */
+// 敵の「画面中心」から距離・描画を行い、ズレを最小化
 function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
@@ -264,11 +289,11 @@ function tryAttack(dt) {
 
   const r2 = lightning.range * lightning.range;
 
-  // 射程内候補：各敵の「画面中心」を毎回取得し、そこから lane座標に変換して使う
+  // 射程内候補：各敵の画面中心→lane座標で判定
   const cand = [];
   for (const e of enemies) {
-    const ec = getEnemyCenter(e);             // 画面座標
-    const ex = ec.x - laneRect.left;          // lane座標へ
+    const ec = centerScreen(e.el);            // 画面座標
+    const ex = ec.x - laneRect.left;          // lane
     const ey = ec.y - laneRect.top;
     const d2 = dist2(sx, sy, ex, ey);
     if (d2 <= r2) cand.push({ e, d2, ex, ey });
@@ -282,7 +307,7 @@ function tryAttack(dt) {
   let dmg = lightning.baseDmg;
   let dealtTotal = 0;
 
-  // 1本目：⚡ → 最も近い敵（座標は cand の ex/ey を使う）
+  // 1本目：⚡ → 最も近い敵（candのex/eyを使う）
   const first = cand[0];
   spawnBeam(sx, sy, first.ex, first.ey);
   used.add(first.e);
@@ -331,7 +356,7 @@ function tryAttack(dt) {
   lightning.timer = lightning.cooldown;
 }
 
-/* (13) ---------- ループ（移動/衝突/突破=失敗 or 低ダメ） ---------- */
+/* (13) ---------- ループ（移動/衝突/突破） ---------- */
 let last = performance.now();
 
 function getSpiritCenter(){ return centerScreen(spiritEl); }
@@ -353,7 +378,6 @@ function gameLoop(now = performance.now()) {
     measureRects();
   } else {
     const r = laneEl.getBoundingClientRect();
-    // 高さ or オフセットに1px以上の変化があれば更新
     if (Math.abs(r.top - laneRect.top) > 1 ||
         Math.abs(r.height - laneRect.height) > 1 ||
         Math.abs(r.left - laneRect.left) > 1) {
@@ -410,7 +434,7 @@ function gameLoop(now = performance.now()) {
     if (dist <= (R_SPIRIT + R_ENEMY)) {
       const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
       addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-      damagePlayer(hitDmg);            // 外部で定義済み（HP更新＆0でfailStage）
+      damagePlayer(hitDmg);
       // 敵は消す
       releaseEnemyEl(e.el);
       enemies.splice(i, 1);
@@ -419,19 +443,17 @@ function gameLoop(now = performance.now()) {
     }
 
     // ---- 画面外（突破）判定：画面座標 + 余白で緩めに ----
-    {
-      const br = laneRect;
-      const marginX = 120, marginY = 160; // 余白
-      if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
-          ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-        const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
-        addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
-        damagePlayer(escDmg);
-        releaseEnemyEl(e.el);
-        enemies.splice(i, 1);
-        spawnPlan.alive--;
-        continue;
-      }
+    const br = laneRect;
+    const marginX = 120, marginY = 160; // 余白
+    if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
+        ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+      const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
+      addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
+      damagePlayer(escDmg);
+      releaseEnemyEl(e.el);
+      enemies.splice(i, 1);
+      spawnPlan.alive--;
+      continue;
     }
   }
 
@@ -553,17 +575,17 @@ btnContinue?.addEventListener('click', () => {
     playerHp    = data.playerHp ?? playerHpMax;
     updatePlayerHpUI();
     if (data.lightning) {
-      lightning.baseDmg = data.lightning.baseDmg ?? lightning.baseDmg;
-      lightning.cooldown= data.lightning.cooldown ?? lightning.cooldown;
-      lightning.range   = data.lightning.range ?? lightning.range;
-      lightning.chainCount = data.lightning.chainCount ?? lightning.chainCount;
+      lightning.baseDmg   = data.lightning.baseDmg   ?? lightning.baseDmg;
+      lightning.cooldown  = data.lightning.cooldown  ?? lightning.cooldown;
+      lightning.range     = data.lightning.range     ?? lightning.range;
+      lightning.chainCount= data.lightning.chainCount?? lightning.chainCount;
       chainEl.textContent = `${lightning.chainCount}/15`;
     }
   }
   hideStartScreen();
 });
 
-// 一時停止/再開/リトライ（存在すれば動かす）
+// 一時停止/再開/リトライ
 btnPause?.addEventListener('click', () => { if (!gs.running) return; gs.paused = true;  addLog('⏸ 一時停止', 'dim'); });
 btnResume?.addEventListener('click',()=> { if (!gs.running) return; gs.paused = false; addLog('▶ 再開',   'dim'); });
 btnRetry?.addEventListener('click', () => { if (!gs.running) return; addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
@@ -574,7 +596,6 @@ setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 /* (16) ---------- GameAPI 公開（upgrades.js から使う） ---------- */
 const listeners = { stageChange: new Set() };
 function emitStageChange(){ listeners.stageChange.forEach(fn=>{ try{ fn(getStageInfo()); }catch{} }); }
-
 function getStageInfo(){ return { floor:gs.floor, chapter:gs.chapter, stage:gs.stage, isNight:gs.isNight }; }
 
 window.GameAPI = {
@@ -597,7 +618,7 @@ window.GameAPI = {
   healPlayer: (v)=>{ playerHp=Math.min(playerHpMax, playerHp+v); updatePlayerHpUI(); saveGame(); },
   setPlayerHpMax: (m)=>{ playerHpMax=Math.max(1,m); playerHp=Math.min(playerHp,playerHpMax); updatePlayerHpUI(); saveGame(); },
 
-  // ステージ情報
+  // ステージ
   getStageInfo,
   onStageChange: (fn)=>{ listeners.stageChange.add(fn); },
   offStageChange:(fn)=>{ listeners.stageChange.delete(fn); },
