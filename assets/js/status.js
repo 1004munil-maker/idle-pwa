@@ -1,9 +1,17 @@
-// assets/js/status.js vproto-02
+// assets/js/status.js vproto-02-fix1
 // ステータス強化（常時効果）: Crit / Speed / Range / Gold+
 // - ゴールド支払いで強化、即時セーブ、即時反映
 // - window.Status API を公開
+// - ❗修正点
+//   * _inited フラグを init 内で true にする（多重初期化ガードのため）
+//   * open() が初回でも必ず UI を生成できるように防御
+//   * load() を安全化（空文字や壊れたJSONで例外を出さない）
+//   * ダイアログ表示ロジックを強化（aria-hidden の適切化 / Esc / 背景クリックで閉じる）
+//   * 旧環境で toLocaleString 周りの未定義を避ける防御
 
 (function(){
+  'use strict';
+
   const SAVE_KEY = 'idleLightningStatusV1';
 
   // 基準値＆上限
@@ -25,7 +33,15 @@
   // 状態
   let st = load() || { lvCrit:0, lvSpd:0, lvRange:0, lvGold:0, baseCooldown:0.70 };
 
-  function load(){ try{ return JSON.parse(localStorage.getItem(SAVE_KEY)||''); }catch{ return null; } }
+  function load(){
+    try{
+      const s = localStorage.getItem(SAVE_KEY);
+      if(!s) return null;
+      const obj = JSON.parse(s);
+      if(!obj || typeof obj !== 'object') return null;
+      return obj;
+    }catch{ return null; }
+  }
   function save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(st)); }catch{} }
 
   // 計算系
@@ -52,9 +68,17 @@
     if(wrap) return;
     wrap = document.createElement('div');
     wrap.id = 'status-overlay';
-    wrap.style.cssText = `position:fixed; inset:0; z-index:1000; display:none; background:rgba(10,12,16,.82); backdrop-filter: blur(6px); color:#e9eef6;`;
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-hidden', 'true');
+    wrap.style.cssText = [
+      'position:fixed','inset:0','z-index:1000','display:none',
+      'background:rgba(10,12,16,.82)','backdrop-filter:blur(6px)',
+      'color:#e9eef6'
+    ].join(';');
 
-    const goldNow = (game?.getGold?.()|0).toLocaleString();
+    const goldNowNum = Number(typeof game?.getGold === 'function' ? game.getGold() : 0) || 0;
+    const goldNow = goldNowNum.toLocaleString();
     wrap.innerHTML = `
       <div style="max-width:560px; margin:48px auto; background:#121824; border:1px solid #29364a; border-radius:16px; padding:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -68,7 +92,14 @@
         <div id="stHint" style="margin-top:8px; font-size:12px; opacity:.85;">支払い: ゴールド / 強化は即時保存（長押しで連続強化）</div>
       </div>`;
     document.body.appendChild(wrap);
-    wrap.querySelector('#stClose').onclick = hide;
+
+    const closeBtn = wrap.querySelector('#stClose');
+    if(closeBtn) closeBtn.addEventListener('click', hide, { passive:true });
+
+    // 背景クリックで閉じる
+    wrap.addEventListener('click', (ev)=>{ if(ev.target === wrap) hide(); });
+    // Escで閉じる
+    document.addEventListener('keydown', (ev)=>{ if(ev.key === 'Escape' && wrap && wrap.style.display === 'block') hide(); });
 
     const rows = wrap.querySelector('#stRows');
     const mkRow = (id, label, desc) => `
@@ -110,9 +141,24 @@
     refreshUI(game);
   }
 
-  function show(game){ ensureUI(game); refreshUI(game); wrap.style.display='block'; }
-  function hide(){ if(wrap) wrap.style.display='none'; }
-  function setGoldLabel(game){ try{ wrap?.querySelector('#stGold').textContent = (game?.getGold?.()|0).toLocaleString(); }catch{} }
+  function show(game){
+    ensureUI(game);
+    refreshUI(game);
+    wrap.style.display='block';
+    wrap.setAttribute('aria-hidden','false');
+  }
+  function hide(){
+    if(!wrap) return;
+    wrap.style.display='none';
+    wrap.setAttribute('aria-hidden','true');
+  }
+  function setGoldLabel(game){
+    try{
+      const num = Number(typeof game?.getGold === 'function' ? game.getGold() : 0) || 0;
+      const el = wrap?.querySelector('#stGold');
+      if(el) el.textContent = num.toLocaleString();
+    }catch{}
+  }
 
   function refreshUI(game){
     if(!wrap) return;
@@ -127,21 +173,28 @@
       else if(key==='range'){ lv = st.lvRange; const mul = rangeMul(); curText = '+' + Math.round((mul-1)*100) + '%'; maxed = mul >= caps.rangeMaxMul - 1e-9; }
       else if(key==='gold'){ lv = st.lvGold; const mul = goldMul(); curText = '+' + Math.round((mul-1)*100) + '%'; maxed = mul >= caps.goldMaxMul - 1e-9; }
 
-      row.querySelector('.val').textContent = curText;
-      row.querySelector('.lvnum').textContent = String(lv);
-      const costSpan = row.querySelector('.c');       costSpan.textContent = maxed ? 'MAX' : String(costOf(key));
-      const cost10   = row.querySelector('.c10');     cost10.textContent   = maxed ? '-' : String(costSum(key, 10));
-      row.querySelector('.up1').disabled  = maxed;
-      row.querySelector('.up10').disabled = maxed;
+      const valEl = row.querySelector('.val'); if(valEl) valEl.textContent = curText;
+      const lvEl  = row.querySelector('.lvnum'); if(lvEl) lvEl.textContent = String(lv);
+      const costSpan = row.querySelector('.c');       if(costSpan) costSpan.textContent = maxed ? 'MAX' : String(costOf(key));
+      const cost10   = row.querySelector('.c10');     if(cost10)   cost10.textContent   = maxed ? '-'   : String(costSum(key, 10));
+      const up1  = row.querySelector('.up1');  if(up1)  up1.disabled  = maxed;
+      const up10 = row.querySelector('.up10'); if(up10) up10.disabled = maxed;
     });
   }
 
   function notEnoughToast(btn){
+    if(!btn || !btn.parentElement) return;
     const t = document.createElement('div');
-    t.textContent = 'ゴールドが足りません'; t.style.cssText = 'position:absolute; right:0; top:-22px; padding:2px 6px; font-size:11px; border-radius:8px; background:#3a1f1f; color:#ffd0d0; border:1px solid #5c2c2c;';
-    btn.parentElement.style.position='relative';
-    btn.parentElement.appendChild(t);
-    setTimeout(()=>t.remove(), 1400);
+    t.textContent = 'ゴールドが足りません';
+    t.style.cssText = 'position:absolute; right:0; top:-22px; padding:2px 6px; font-size:11px; border-radius:8px; background:#3a1f1f; color:#ffd0d0; border:1px solid #5c2c2c;';
+    const host = btn.parentElement;
+    const prevPos = host.style.position;
+    if(getComputedStyle(host).position === 'static') host.style.position='relative';
+    host.appendChild(t);
+    setTimeout(()=>{
+      t.remove();
+      if(prevPos) host.style.position = prevPos;
+    }, 1400);
   }
 
   function tryUpgradeN(key, n, game){
@@ -152,13 +205,18 @@
                   (key==='gold' && goldMul()  >= caps.goldMaxMul - 1e-9);
     if(maxed) return;
 
-    if(!game || !game.spendGold || !game.addLog){ alert('GameAPI未接続'); return; }
+    if(!game || typeof game.spendGold !== 'function' || typeof game.addLog !== 'function'){
+      // GameAPI未接続でも UI は開けるようにしておく
+      alert('GameAPI未接続：ゲームを開始してから再度お試しください。');
+      return;
+    }
 
     let remain = n;
     while(remain>0){
       const cost = costOf(key);
       if(!game.spendGold(cost)){
-        notEnoughToast(wrap.querySelector(`.row[data-key="${key}"] .up1`));
+        const btnSel = `.row[data-key="${key}"] .up1`;
+        notEnoughToast(wrap?.querySelector(btnSel));
         break;
       }
       if(key==='crit') st.lvCrit++; else if(key==='spd') st.lvSpd++; else if(key==='range') st.lvRange++; else st.lvGold++;
@@ -175,9 +233,14 @@
 
   function applyToGame(game){
     if(!game || !game.lightning) return;
+    // ベース値キャプチャ
     if(typeof game.lightning.cooldown === 'number'){
       st.baseCooldown = game.lightning.cooldownBase ?? game.lightning.cooldown;
     }
+    if(game.lightning.cooldownBase == null) game.lightning.cooldownBase = st.baseCooldown;
+    if(game.lightning.baseRange    == null) game.lightning.baseRange    = game.lightning.range;
+
+    // 反映
     const base = game.lightning.cooldownBase ?? st.baseCooldown;
     const effCd = cooldown(base);
     game.lightning.cooldown = effCd;
@@ -189,16 +252,22 @@
   window.Status = {
     _inited:false,
     init(game){
+      if(this._inited) return;
       if(game?.lightning){
         if(game.lightning.cooldownBase==null) game.lightning.cooldownBase = game.lightning.cooldown;
         if(game.lightning.baseRange==null)    game.lightning.baseRange    = game.lightning.range;
       }
       ensureUI(game);
       applyToGame(game);
+      this._inited = true; // ← ここが今回の修正ポイント
     },
-    open(game){ show(game); },
+    open(game){
+      // 初回でも必ず UI を生成して開く
+      if(!this._inited) this.init(game);
+      show(game);
+    },
     close(){ hide(); },
-    reset(){ st = { lvCrit:0, lvSpd:0, lvRange:0, lvGold:0, baseCooldown:0.70 }; save(); },
+    reset(){ st = { lvCrit:0, lvSpd:0, lvRange:0, lvGold:0, baseCooldown:0.70 }; save(); if(wrap) refreshUI(); },
     getCritChance: ()=> critChance(),
     getCritMul:    ()=> 2.0,
     getGoldMul:    ()=> goldMul(),

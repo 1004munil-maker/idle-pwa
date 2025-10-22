@@ -1,5 +1,5 @@
 /* =========================================================
-   Idle Lightning - style.css (Ultra Polish v6 clean)
+   Idle Lightning - style.css (Ultra Polish v6 clean / log fix)
    ========================================================= */
 
 /* (1) Root */
@@ -162,16 +162,36 @@ body::after{
   transform-origin: left center; z-index:3; opacity:.98; will-change: transform, width, opacity, filter; }
 .beam.fade{ transition: opacity .12s ease, filter .12s ease; opacity: 0; filter: blur(1px); }
 
-/* (10) Log */
-/* 統一版：.log は absolute のまま、ボタン分の上パディングを追加 */
+/* (10) Log — ここを絶対配置＆サイズ固定して可視化 */
+/* (10) Log — ログ領域を絶対配置＆ボタン分の余白を確保 */
 .log{
-  /* 既存の .log 定義（absolute, top:var(--battle-h), height:var(--log-h) など）はそのまま */
-  /* ここでは“上にボタンの分だけ余白”を足すだけ */
-  padding: 36px 10px 8px; /* ← 上 36px でボタンと重ならない */
-  overflow-y: auto;       /* スクロールは有効のまま */
+  position: absolute;          /* ← これで .game-container を基準に固定 */
+  left: 0;
+  right: 0;
+  top: var(--battle-h);        /* battlefield の直下から */
+  height: var(--log-h);        /* ルート変数で高さ固定 */
+  z-index: 2;                  /* 背景(0)やbattlefield(1)より上 */
+  padding: 36px 10px 8px;      /* ← 上36pxでBGMボタンとログが重ならない */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
-/* ログ右上のBGMトグル（.log 配下に固定） */
+/* ログが空のときのプレースホルダー（任意） */
+.log:empty::after{
+  content: "ログはここに表示されます";
+  opacity: .65;
+  display: block;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ログ右上のBGMトグル（.log 内で固定） */
 .log .bgm-toggle{
   position: absolute;
   top: 8px;
@@ -196,6 +216,40 @@ body::after{
 .log .bgm-toggle[aria-pressed="false"]{
   opacity: .75;
   border-color: rgba(120,160,255,.25);
+}
+
+/* ログ行 */
+.log-entry{
+  margin: 2px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  color: #e8f1ff;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+  word-break: break-word;
+}
+.log-entry.dim{
+  opacity: .78;
+  background: rgba(255,255,255,.03);
+}
+.log-entry.gain{
+  color: var(--good);
+  background: rgba(40,80,50,.18);
+  border-color: rgba(160,240,180,.35);
+}
+.log-entry.alert{
+  color: #ffd3d3;
+  background: rgba(90,40,45,.20);
+  border-color: rgba(255,100,100,.35);
+}
+
+/* スモール端末でも上余白36pxを維持（以前のメディアクエリで上書きされないように） */
+@media (max-width: 380px){
+  .log{
+    padding: 36px 8px 6px;   /* ← 上36pxは死守、左右/下だけ縮める */
+    font-size: 12px;
+  }
 }
 
 
@@ -235,7 +289,8 @@ body::after{
   .chip{ padding: 5px 9px; min-width: 74px; font-size: 12px; }
   .menu{ gap: 8px; padding: 10px; }
   .menu button{ font-size: 15px; min-height: 42px; }
-  .log{ font-size: 11px; padding: 6px 8px; }
+  /* モバイルでもBGMボタンの余白を維持（上だけ小さく） */
+  .log{ font-size: 11px; padding: 32px 8px 6px; }
 }
 @media (max-width: 330px){
   .hud{ right: 8px; top: 8px; }
