@@ -1,5 +1,5 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v5.1 Stable, EID-safe)
+   Idle Lightning - game.js (Progression v5.2 Stable, EID-safe + EXP)
    ---------------------------------------------------------
    - ステージ/章/階（30章でHP係数×1.5）
    - 10面は夜：敵HP×2、10%でダイヤ
@@ -9,6 +9,8 @@
    - 一意敵ID（eid）で安全な生成/削除/再利用
    - HUD：残り数（remain）対応
    - TS2451（last の二重宣言）修正
+   - ★Fix: プール再利用時に .dead 残留→透明化を根治（resetEnemyEl）
+   - ★EXP: kill / clear で獲得（exp.js が window.Exp にロード済を想定）
    ========================================================= */
 
 /* (1) ---------- DOM参照 ---------- */
@@ -173,6 +175,22 @@ function getEnemyEl() {
 }
 function releaseEnemyEl(el) { el.remove(); enemyPool.push(el); }
 
+// ★★★ 8.5) 再利用時の完全リセット（透明化バグ根治） ★★★
+function resetEnemyEl(el){
+  // クラス/インライン/属性の完全初期化
+  el.className = 'enemy';
+  el.style.cssText = '';            // transform/opacity/animation も初期化
+  el.dataset.eid = '';
+  el.dataset.alive = '';
+  // 子要素（hpバーなど）もリセット
+  let iconEl = el.querySelector('.icon');
+  let hpEl   = el.querySelector('.hp');
+  if (!iconEl) { iconEl = document.createElement('span'); iconEl.className='icon'; el.prepend(iconEl); }
+  if (!hpEl)   { hpEl   = document.createElement('div');   hpEl.className='hp'; el.append(hpEl); }
+  hpEl.style.width = '100%';
+  el.setAttribute('data-hp', '');
+}
+
 // 敵リスト（eid付）
 const enemies = [];  // {eid,el,type,x,y,vx,vy,speed,hp,maxHp,reward,dmg,t,swayAmp,swayFreq}
 let enemySeq = 1;
@@ -198,15 +216,17 @@ function spawnEnemy(type = pickEnemyType()) {
 
   const t  = ENEMY_TYPES[type];
   const el = getEnemyEl();
+
+  // ★再利用リセット（重要）
+  resetEnemyEl(el);
+
   const eid = enemySeq++;
   el.dataset.eid = String(eid);
   el.dataset.alive = "1";
   laneEl.appendChild(el);
 
-  // アイコン保証
-  let iconEl = el.querySelector('.icon');
-  if (!iconEl) { iconEl = document.createElement('span'); iconEl.className='icon'; el.prepend(iconEl); }
-  iconEl.textContent = ENEMY_ICONS[type] || '👾';
+  // アイコン
+  el.querySelector('.icon').textContent = ENEMY_ICONS[type] || '👾';
 
   // 出現位置
   const startX = laneWidthCached - 60 - Math.random() * 40;
@@ -296,6 +316,7 @@ function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
     const keepEid = String(eid);
     e.el.classList.add('dead');
     setTimeout(() => {
+      // 再利用された別個体には触らない
       if (e.el.dataset.eid === keepEid && e.el.dataset.alive === "1") {
         e.el.dataset.alive = "0";
         releaseEnemyEl(e.el);
@@ -373,6 +394,7 @@ function tryAttack(dt) {
     dmg *= lightning.falloff;
   }
 
+  // 撃破処理 + ★EXP：撃破
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
@@ -381,6 +403,13 @@ function tryAttack(dt) {
         addLog('💎 ダイヤを獲得！', 'gain');
       }
       gold += e.reward; goldEl.textContent = gold;
+
+      // ★ EXP: キル時付与
+      if (window.Exp) {
+        const gain = window.Exp.expFromKill(gs, e.type);
+        window.Exp.addExp(gain, 'kill');
+      }
+
       removeEnemyById(e.eid, { by:'beam', fade:true });
     }
   }
@@ -390,7 +419,7 @@ function tryAttack(dt) {
 }
 
 /* (13) ---------- ループ（移動/衝突/突破） ---------- */
-// ★★★ ここでは「宣言しない」：宣言は (17) に 1 回だけ！ ★★★
+// ※ ここで let last を宣言しない（(17) で 1 回だけ）
 
 function getSpiritCenter(){ return centerScreen(spiritEl); }
 function getEnemyCenter(e){ return centerScreen(e.el); }
@@ -504,6 +533,12 @@ function startStageHead() {
 
 function nextStage() {
   addLog(`✅ クリア：${gs.chapter}-${gs.stage} / ${gs.floor}F`, 'gain');
+
+  // ★ EXP: ステージクリア時ボーナス
+  if (window.Exp) {
+    const bonus = window.Exp.expFromStageClear(gs);
+    window.Exp.addExp(bonus, 'clear');
+  }
 
   gs.stage += 1;
   if (gs.stage > 10) {
@@ -647,7 +682,6 @@ const _failStage = failStage;
 failStage = function(){ _failStage(); emitStageChange(); };
 
 /* (17) ---------- 初期化 ---------- */
-// ★ ここで 1 回だけ宣言＆ init() で代入
 let last;
 function init() {
   measureRects();

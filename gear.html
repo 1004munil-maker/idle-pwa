@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>装備（精霊石・指輪）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./assets/css/style.css" />
+  <style>
+    body{margin:0;padding:12px;color:#e9eef6;background:#0e141c;font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
+    .bar{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+    .btn{cursor:pointer;border-radius:10px;border:1px solid #3a414c;background:linear-gradient(#2c333d,#232830);color:#fff;padding:10px 12px}
+    .wrap{display:grid;grid-template-columns:280px 1fr;gap:16px}
+    .panel{background:#0b1017;border:1px solid #253041;border-radius:12px;padding:12px}
+    .slots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .slot{border:1px dashed #3a414c;border-radius:12px;min-height:120px;display:flex;align-items:center;justify-content:center;padding:8px}
+    .slot.filled{border-style:solid}
+    .muted{opacity:.75}
+    .inv{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+    .card{position:relative;border:1px solid #3a414c;border-radius:12px;padding:10px;background:#0f1520}
+    .row{display:flex;align-items:center}
+    .space{justify-content:space-between}
+    .gap{gap:8px}
+    .badge{font-size:11px;border-radius:999px;padding:2px 6px;color:#06121f}
+    .tag{background:#1e293b;border-radius:8px;padding:2px 6px;font-size:12px}
+    .pickBox{position:absolute;left:8px;top:8px}
+    .infoBtn{position:absolute;right:8px;bottom:8px;border-radius:10px;border:1px solid #3a414c;background:#18202c;color:#dfeaff;padding:2px 8px;cursor:pointer}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .infoBubble{position:fixed;z-index:10000;background:#0b1017;border:1px solid #3a414c;border-radius:10px;padding:10px;min-width:160px;box-shadow:0 14px 36px rgba(0,0,0,.45)}
+    .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;background:#101827;border:1px solid #314055;border-radius:10px;padding:10px 12px;display:none}
+    .flyCard{position:fixed;z-index:100000;transition:transform .36s ease,opacity .36s ease;pointer-events:none}
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <a href="index.html" class="btn">← 戻る</a>
+    <div>💎 <b id="dia">0</b></div>
+    <div>| 選択: <b id="selCount">0</b></div>
+    <button id="gacha1" class="btn">ガチャ×1</button>
+    <button id="gacha10" class="btn">ガチャ×10</button>
+    <button id="fuseBtn" class="btn">合成（10個）</button>
+    <button id="enhanceBtn" class="btn">強化（1個）</button>
+    <button id="equipBtn" class="btn">装着（1個）</button>
+    <button id="selectAllBtn" class="btn">全選択</button>
+    <button id="autoDismantleBtn" class="btn">分解（選択）</button>
+  </div>
+
+  <div class="wrap">
+    <div class="panel">
+      <h3 style="margin-top:0">装備中</h3>
+      <div id="equippedBar" class="slots">
+        <!-- JSが2スロ（石/指輪）を描画 -->
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0">在庫</h3>
+      <div id="inv" class="inv"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="./assets/js/spirit_gear.js"></script>
+</body>
+</html>

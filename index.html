@@ -29,6 +29,12 @@
         <div class="chip chain"><span class="label">Chain</span><span id="chain">2/15</span></div>
         <div class="chip"><span class="label">Stage</span><span id="stageLabel">1-1 / 1F</span></div>
         <div class="chip"><span class="label">残り</span><span id="remain">--</span></div>
+        <!-- HUD のどこか -->
+<span id="levelChip" class="chip">Lv 1</span>
+<div style="width:120px;height:6px;background:#233040;border-radius:4px;overflow:hidden;border:1px solid #3a4a63">
+  <div id="expBar" style="height:100%;width:0%;background:linear-gradient(90deg,#78ffa8,#32e6ff)"></div>
+</div>
+<small id="expLabel" style="opacity:.8">0 / 20</small>
         <div class="chip"><span class="label">HP</span><span id="playerHpLabel">100/100</span></div>
       </div>
     </div>
@@ -51,11 +57,11 @@
 
     <!-- (4-4) メニュー（下段） -->
     <section class="menu">
-      <button class="btn-power">攻撃力</button>
-      <button class="btn-rate">速度</button>
+      <button class="btn-power">クリティカル確率</button>
+      <button class="btn-rate">攻撃速度</button>
       <button class="btn-range">射程</button>
-      <button id="btn-pause">一時停止</button>
-      <button id="btn-resume">再開</button>
+      <button id="btn-pause">装備</button>
+      <button id="btn-resume">宝物</button>
       <button id="btn-retry">リトライ</button>
     </section>
 
