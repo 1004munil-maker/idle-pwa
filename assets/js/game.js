@@ -724,23 +724,56 @@ function ensureBgmInit(){
   day.volume = 0.7; night.volume = 0.7;
   day.loop = true; night.loop = true;
 }
+
+// これで既存の applyBgmForStage を置き換え
+function isAudioPlaying(a){ try{ return a && !a.paused && a.currentTime > 0 && !a.ended; }catch{return false;} }
+
+let __bgmRetryT = null;
+function kickBgmSoon(){ clearTimeout(__bgmRetryT); __bgmRetryT = setTimeout(()=>applyBgmForStage(), 200); }
+
 async function applyBgmForStage(){
   ensureBgmInit();
-  const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night');
+  const day   = document.getElementById('bgm-day');
+  const night = document.getElementById('bgm-night');
   if (!day || !night) return;
-  try{
-    // まずは両方止めてから、片方だけ再生
-    day.pause(); night.pause();
-    if (bgmEnabled()) {
-      if (gs.isNight) { await night.play(); } else { await day.play(); }
-    }
-  }catch(e){ /* ブラウザの自動再生制限などは無視 */ }
-  const btn = document.getElementById('btn-bgm');
-  if (btn){
-    btn.setAttribute('aria-pressed', String(bgmEnabled()));
-    btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF';
+
+  const desired = gs.isNight ? night : day;
+  const other   = gs.isNight ? day   : night;
+
+  if (!bgmEnabled()){
+    try{ if (!day.paused) day.pause(); if (!night.paused) night.pause(); }catch{}
+    const btn = document.getElementById('btn-bgm');
+    if (btn){ btn.setAttribute('aria-pressed','false'); btn.textContent = '♪ BGM OFF'; }
+    return;
   }
+
+  // 既に正しい曲が鳴っているなら何もしない（切り替え時だけ操作）
+  try{
+    if (other && !other.paused) other.pause();
+    if (!isAudioPlaying(desired)) {
+      await desired.play(); // ここで拒否されても下の自己復帰で再トライ
+    }
+  }catch(e){ /* 自動再生制限などは無視して後でリトライ */ }
+
+  const btn = document.getElementById('btn-bgm');
+  if (btn){ btn.setAttribute('aria-pressed','true'); btn.textContent = '♪ BGM ON'; }
 }
+
+// 一度だけ自己復帰リスナーを配線（多重配線防止）
+function wireBgmSelfRecovery(){
+  const day   = document.getElementById('bgm-day');
+  const night = document.getElementById('bgm-night');
+  if (!day || !night) return;
+  if (day.dataset.rewire === '1') return;
+  const rearm = ()=>{ if (bgmEnabled() && !document.hidden) kickBgmSoon(); };
+  ['stalled','suspend','abort','error','emptied','waiting','ended','pause'].forEach(ev=>{
+    day.addEventListener(ev, rearm);
+    night.addEventListener(ev, rearm);
+  });
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) kickBgmSoon(); });
+  day.dataset.rewire = night.dataset.rewire = '1';
+}
+
 function wireBgmToggleButton(){
   const btn = document.getElementById('btn-bgm'); if (!btn) return;
   if (btn.dataset.wired === '1') return; // 重複防止
@@ -800,4 +833,5 @@ window.addEventListener('load', () => {
   }, 0);
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
   wireBgmToggleButton();
+  wireBgmSelfRecovery(); // ← 自己復帰を配線
 });
