@@ -24,14 +24,12 @@
 
 /* (1) ---------- ルート変数 / テーマ ---------- */
 :root{
-  /* レイアウト比率 */
   --battle-h: 40%;
   --log-h: 36%;
   --menu-h: 24%;
   --hud-gap: 8px;
   --hud-m: 16px;
 
-  /* カラー（夜明け×稲光） */
   --bg-0: #070b11;
   --bg-1: #0d1320;
   --bg-2: #0b111a;
@@ -47,28 +45,23 @@
   --dia:  #7fe8ff;
   --good: #d8ffb2;
 
-  --accent:  #66baff;   /* 雷ブルー */
-  --accent2: #8fd2ff;   /* 補助ライト */
+  --accent:  #66baff;
+  --accent2: #8fd2ff;
 
-  /* バトルの左右グラデ */
   --battle-left:  #141b28;
   --battle-right: #1b2433;
 
-  /* ビーム色 */
   --beam-1: #fff48a;
   --beam-2: #ffd84d;
   --beam-3: #ffb300;
 
-  /* ガラス効果 */
   --glass: rgba(10,14,20,.55);
   --glass-bd: rgba(255,255,255,.08);
   --blur: 8px;
 
-  /* 光彩 */
   --glow-1: 0 0 16px rgba(102,186,255,.45);
   --glow-2: 0 0 28px rgba(102,186,255,.30);
 
-  /* iOSノッチ */
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -181,7 +174,6 @@ body::after{
   z-index: 1;
   will-change: transform;
 }
-/* 微細グリッドで奥行き */
 .battlefield::before{
   content:"";
   position:absolute; inset:0;
@@ -194,18 +186,21 @@ body::after{
   opacity: .34;
 }
 
-/* (7) ---------- 精霊⚡（演出強化） ---------- */
+/* (7) ---------- 精霊⚡ & 自分HPバー ---------- */
+/* 位置合わせ用ラッパー */
+.spirit-wrap{
+  position:absolute; left: 6%; top: 50%; transform: translateY(-50%);
+  z-index: 2;
+}
 .spirit{
-  position: absolute; left: 6%; top: 50%; transform: translateY(-50%);
   font-size: 30px; color: var(--accent2);
   text-shadow: var(--glow-1), var(--glow-2);
-  z-index: 2;
   animation: spiritFloat 2.8s ease-in-out infinite;
   will-change: transform;
 }
 @keyframes spiritFloat{
-  0%,100%{ transform: translateY(-50%) }
-  50%    { transform: translateY(calc(-50% - 3px)) }
+  0%,100%{ transform: translateY(0) }
+  50%    { transform: translateY(-3px) }
 }
 /* 微光リング */
 .spirit::after{
@@ -217,6 +212,17 @@ body::after{
     0 0 22px rgba(120,180,255,.35),
     inset 0 0 10px rgba(120,180,255,.25);
   pointer-events: none;
+}
+/* 自分HPバー（精霊上） */
+.player-hp{
+  position:absolute; left: -6px; right: -6px; top: -18px; height: 5px;
+  background: rgba(0,0,0,.5); border-radius: 4px; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.player-hp .fill{
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, #8dff9f, #4de3ff);
+  transition: width .15s linear;
 }
 
 /* (8) ---------- 敵レーン / 敵 ---------- */
@@ -237,6 +243,14 @@ body::after{
     0 0 10px rgba(255,60,120,.40),
     inset 0 0 8px rgba(255,255,255,.15);
   will-change: transform, opacity, filter;
+}
+
+/* 敵アイコン（🦂/🦅/🦏） */
+.enemy .icon{
+  position:absolute; inset:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size: 18px; pointer-events:none;
+  text-shadow: 0 0 6px rgba(0,0,0,.35);
 }
 
 /* HPバー（上部3px） */
@@ -276,18 +290,13 @@ body::after{
   position:absolute; left:0; top:0; height:3px;
   background: linear-gradient(90deg,var(--beam-1) 0%, var(--beam-2) 45%, var(--beam-3) 100%);
   border-radius: 2px;
-  box-shadow:
-    0 0 8px rgba(255,220,100,.9),
-    0 0 18px rgba(255,200,60,.65);
+  box-shadow: 0 0 8px rgba(255,220,100,.9), 0 0 18px rgba(255,200,60,.65);
   transform-origin: left center;
   z-index: 3;
   opacity: .98;
   will-change: transform, width, opacity, filter;
 }
-.beam.fade{
-  transition: opacity .12s ease, filter .12s ease;
-  opacity: 0; filter: blur(1px);
-}
+.beam.fade{ transition: opacity .12s ease, filter .12s ease; opacity: 0; filter: blur(1px); }
 
 /* (10) ---------- ログ（中段） ---------- */
 .log{
@@ -295,20 +304,15 @@ body::after{
   background: var(--panel-3);
   border-top: 1px solid var(--line-2);
   border-bottom: 1px solid var(--line-1);
-  color: #c8ffd4;
-  font-size: 12px;
-  padding: 8px 10px;
-  overflow-y: auto;
-  z-index: 2;
+  color: #c8ffd4; font-size: 12px;
+  padding: 8px 10px; overflow-y: auto; z-index: 2;
   scrollbar-gutter: stable both-edges;
-  overscroll-behavior: contain;
-  word-break: break-word;
+  overscroll-behavior: contain; word-break: break-word;
 }
 .log-entry{ margin: 2px 0; }
 .log-entry.dim   { color: #a4c0a9; }
 .log-entry.alert { color: #ff9393; }
 .log-entry.gain  { color: #e9ff93; }
-
 .log::-webkit-scrollbar{ width: 6px; }
 .log::-webkit-scrollbar-thumb{ background: #2f3740; border-radius: 6px; }
 .log::-webkit-scrollbar-track{ background: #0b0d11; }
@@ -319,24 +323,18 @@ body::after{
   background: var(--panel-1);
   border-top: 1px solid var(--line-1);
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
-  padding: 12px;
-  z-index: 2;
+  padding: 12px; z-index: 2;
 }
 .menu button{
-  min-height: 44px;
-  font-size: 16px; color: #e9eef5;
+  min-height: 44px; font-size: 16px; color: #e9eef5;
   background: linear-gradient(180deg,#2c333d,#232830);
-  border: 1px solid #3a414c;
-  border-radius: 12px;
-  box-shadow:
-    0 4px 12px rgba(0,0,0,.25),
-    inset 0 0 0 1px rgba(255,255,255,.03);
+  border: 1px solid #3a414c; border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.03);
   cursor: pointer;
   transition: transform .05s ease, filter .15s ease, background .2s ease, box-shadow .2s ease;
 }
 .menu button:hover{ filter: brightness(1.06); box-shadow: 0 6px 14px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.05); }
 .menu button:active{ transform: translateY(1px); }
-
 .menu .btn-power{  border-color:#4c3a3a; }
 .menu .btn-rate{   border-color:#384c3a; }
 .menu .btn-range{  border-color:#3a3f4c; }
@@ -355,13 +353,10 @@ body::after{
   border-radius: 16px;
   background: linear-gradient(180deg, #151a24 0%, #0e1218 100%);
   color: #e7ecff; text-align: center;
-  box-shadow:
-    0 14px 44px rgba(0,0,0,.45),
-    inset 0 0 0 1px rgba(255,255,255,.06);
+  box-shadow: 0 14px 44px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06);
 }
 .start-card .title{ margin: 6px 0 2px; font-size: 22px; letter-spacing: .02em; }
 .start-card .subtitle{ margin: 0 0 16px; font-size: 13px; opacity: .85; }
-
 .start-card .btns{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin: 12px 0 6px; }
 .btn{
   appearance: none; border: 0; border-radius: 12px;
@@ -380,23 +375,14 @@ body::after{
 .btn:disabled{ opacity: .45; cursor: not-allowed; }
 .hint{ margin: 10px 0 0; font-size: 12px; color: #b7c0d8; opacity: .9; }
 
-/* (13) ---------- ユーティリティ / トースト / ツールチップ（任意） ---------- */
-.badge{
-  display:inline-block; padding: 2px 6px; border-radius: 999px;
-  font-size: 11px; letter-spacing: .2px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.06);
-}
-.badge.gold{ color: var(--gold); }
-.badge.dia{  color: var(--dia); }
-.badge.buff{ color: var(--good); }
+/* (13) ---------- ユーティリティ ---------- */
+.badge{ display:inline-block; padding: 2px 6px; border-radius: 999px; font-size: 11px; letter-spacing: .2px;
+  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
+.badge.gold{ color: var(--gold); } .badge.dia{ color: var(--dia); } .badge.buff{ color: var(--good); }
 
 /* (14) ---------- デバッグドット ---------- */
-.dbg-dot{
-  position: fixed; width: 8px; height: 8px;
-  margin: -4px 0 0 -4px; border-radius: 50%;
-  pointer-events: none; z-index: 9999;
-}
+.dbg-dot{ position: fixed; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
+  pointer-events: none; z-index: 9999; }
 .dbg-spirit{ background:#3affff; box-shadow:0 0 8px rgba(58,255,255,.9); }
 .dbg-enemy{  background:#ff7a7a; box-shadow:0 0 8px rgba(255,122,122,.9); }
 
