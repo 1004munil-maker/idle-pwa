@@ -1,24 +1,33 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched EXT2)
-   - Start 画面のセッションロック
-   - init の二重実行ガード（多重 RAF/ログ重複の防止）
-   - BGMトグルの安定化＋自己復帰（stalled/visibilitychange で再試行）
-   - 「はじめから」で全データと Status/EXP も確実にリセット（idleLightning* 全削除）
-   - 失敗ループ後のスポーン停止に対するウォッチドッグ強化
-   - 敵は右側の画面外（遠方）からのみスポーン
-   - クリア時は中央に CLEAR! を表示→遅延して次ステージ
-   - 通常攻撃に attack.mp3 サウンド（SFX）＋初回操作でオートプレイ解錠
+   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched EXT3)
+   - Startロック & 二重init防止
+   - BGMトグル安定化＋自己復帰
+   - 「はじめから」で Status/EXP も完全リセット（idleLightning*掃除）
+   - ウォッチドッグ強化
+   - 敵は常に画面右の外側からスポーン（近すぎ事故防止）＋スポーングレース
+   - CLEAR! 表示後に遷移
+   - 攻撃SFX（attack.mp3）をビーム発射に同期
    ========================================================= */
 
 /* ========== Config ========== */
-const ENEMY_SPEED_MUL   = 0.88;  // 少しだけ減速
-const CLEAR_PAUSE_MS    = 3000;  // クリア表示の時間
-const SPAWN_OFF_X       = 360;   // 画面右外スポーン距離
-const ESCAPE_MARGIN_X   = 420;   // これより外に出たら脱落扱い（X）
-const ESCAPE_MARGIN_Y   = 360;   // これより外に出たら脱落扱い（Y）
-const ATTACK_SFX_VOL    = 0.28;  // 攻撃SFXの音量
-const ATTACK_SFX_POLY   = 4;     // 同時再生用のプール数
-const SFX_FOLLOWS_BGM   = true;  // true: BGM OFF のときSFXも鳴らさない
+const ENEMY_SPEED_MUL = 0.88;
+const CLEAR_PAUSE_MS  = 3000;
+
+// 右側オフスクリーンスポーン距離＆脱落判定の余白
+const SPAWN_OFF_X     = 260;  // 画面右端からどのくらい外で出すか
+const ESCAPE_MARGIN_X = SPAWN_OFF_X + 260; // 逃走判定はスポーン距離より十分外
+const ESCAPE_MARGIN_Y = 320;
+
+// スポーン直後の「脱落判定をしない猶予」(秒)
+const SPAWN_GRACE_SEC = 0.9;
+
+// SFX
+const ATTACK_SFX_VOL  = 0.28;
+const ATTACK_SFX_POLY = 4;
+const SFX_FOLLOWS_BGM = true; // false にするとBGM OFFでもSFXは鳴る
+
+// ログ
+const LOG_ESCAPE = false; // 突破ログを出すなら true
 
 /* ========== DOM ========== */
 const laneEl   = document.getElementById('enemy-lane');
@@ -45,7 +54,7 @@ const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
 const btnStatus = document.getElementById('btn-status');
 
-/* ========== Guards (二重初期化・再表示防止) ========== */
+/* ========== Guards ========== */
 let __INIT_DONE = false;
 function setStartHiddenLock(on){ try{ on ? sessionStorage.setItem('startHidden','1') : sessionStorage.removeItem('startHidden'); }catch{} }
 function hasStartHiddenLock(){ try{ return sessionStorage.getItem('startHidden') === '1'; }catch{ return false; } }
@@ -58,15 +67,12 @@ window.addEventListener('orientationchange', () => setTimeout(measureRects, 200)
 
 /* ========== Log ========== */
 const MAX_LOG = 50;
-
 function addLog(msg, kind = 'info') {
   const root = document.getElementById('log');
   if (!root) { try { console.warn('[addLog] #log not found:', msg); } catch {} return; }
-
   const div = document.createElement('div');
   div.className = `log-entry ${kind}`;
   div.textContent = msg;
-
   const firstEntry = root.querySelector('.log-entry');
   if (firstEntry) root.insertBefore(div, firstEntry);
   else {
@@ -74,11 +80,9 @@ function addLog(msg, kind = 'info') {
     if (btn && btn.nextSibling) root.insertBefore(div, btn.nextSibling);
     else root.appendChild(div);
   }
-
   const entries = root.querySelectorAll('.log-entry');
   for (let i = entries.length - 1; i >= MAX_LOG; i--) entries[i].remove();
 }
-
 function logAttack(chainCount, totalDamage) {
   addLog(`連鎖×${chainCount}！ 合計 ${Math.round(totalDamage)} ダメージ`, 'gain');
 }
@@ -149,7 +153,7 @@ const DB = (function(){
   };
   const weights = F.weights || (() => ([ { type:'swarm', w:0.60 }, { type:'runner', w:0.25 }, { type:'tank', w:0.15 } ]));
   const chapterHpMul = F.chapterHpMul || (chapter => 1 + (chapter-1)*0.15);
-  const nightHpMul   = F.nightHpMul   || (isNight => isNight? 1.5 : 1.0);
+  const nightHpMul   = F.nightHpMul   || (isNight => isNight? 1.8 : 1.0);
   return { defs, weights, chapterHpMul, nightHpMul };
 })();
 
@@ -208,8 +212,8 @@ function spawnEnemy(type = pickEnemyType()) {
 
   el.querySelector('.icon').textContent = def.icon || '👾';
 
-  // === 右側の画面外でスポーン（遠方） ===
-  const startX = laneWidthCached + SPAWN_OFF_X + Math.random() * 120;
+  // === 画面右・外側スポーン（常に右から） ===
+  const startX = laneWidthCached + (SPAWN_OFF_X * 0.7) + Math.random() * (SPAWN_OFF_X * 0.6);
   const startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.08 + 0.84 * Math.random())));
 
   const hpMax = Math.max(1, Math.round(def.hp * hpMultiplier()));
@@ -233,6 +237,7 @@ function spawnEnemy(type = pickEnemyType()) {
     atkCool: 0,
     strikeFromX: 0, strikeFromY: 0, strikeToX: 0, strikeToY: 0,
     strikeHitDone: false, recoilFromX: 0, recoilFromY: 0, recoilToX: 0, recoilToY: 0,
+    spawnGrace: SPAWN_GRACE_SEC,
   });
 
   spawnPlan.spawned++;
@@ -276,7 +281,7 @@ const ExpAPI = {
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
     const base = {swarm:1, runner:2, tank:6}[type]||1;
     const chap = 1 + (gs.chapter-1)*0.25;
-    const night= gs.isNight?1.5:1;
+    const night= gs.isNight?1.5:1;   // ← FIX
     return Math.round(base*chap*night);
   },
   expFromStageClear(gs){
@@ -326,7 +331,7 @@ const Sfx = { attackPool: [], attackIdx: 0, inited:false };
 function ensureSfxInit(){
   if (Sfx.inited) return;
   try {
-    let src = './assets/audio/attack.mp3';
+    let src = 'assets/audio/attack.mp3'; // デフォルト
     const el = document.getElementById('sfx-attack');
     if (el && el.getAttribute('src')) src = el.getAttribute('src');
     for (let i=0;i<ATTACK_SFX_POLY;i++){
@@ -339,20 +344,11 @@ function ensureSfxInit(){
   } catch {}
   Sfx.inited = true;
 }
-function unlockSfxOnce(){
-  ensureSfxInit();
-  // ブラウザのオートプレイ制限を解除するための無音再生→停止
-  for (const a of Sfx.attackPool){
-    try { a.muted = true; a.play().then(()=>{ a.pause(); a.currentTime=0; a.muted=false; }).catch(()=>{}); } catch {}
-  }
-  window.removeEventListener('pointerdown', unlockSfxOnce);
-  window.removeEventListener('keydown', unlockSfxOnce);
+function soundAllowed(){
+  return SFX_FOLLOWS_BGM ? bgmEnabled() : true;
 }
-window.addEventListener('pointerdown', unlockSfxOnce, { once:true });
-window.addEventListener('keydown', unlockSfxOnce, { once:true });
-
 function playAttackSfx(){
-  if (SFX_FOLLOWS_BGM && !bgmEnabled()) return; // マスターのサウンドトグルに連動
+  if (!soundAllowed()) return;
   ensureSfxInit();
   const pool = Sfx.attackPool;
   if (!pool.length) return;
@@ -381,9 +377,6 @@ function tryAttack(dt) {
   }
   if (!cand.length) { lightning.timer = Math.max(0.05, lightning.cooldown*0.3); return; }
 
-  // 攻撃開始時に1回だけSFX
-  playAttackSfx();
-
   cand.sort((a,b)=>a.d2-b.d2);
   const maxHits = Math.min(lightning.chainCount + 1, cand.length);
 
@@ -392,15 +385,17 @@ function tryAttack(dt) {
   let dealtTotal = 0;
 
   const first = cand[0];
-  spawnBeam(sx, sy, first.ex, first.ey);
-  used.add(first.e.eid);
 
+  // 視覚と同期：ビーム発射直後に鳴らす
+  spawnBeam(sx, sy, first.ex, first.ey);
+  playAttackSfx();
+
+  used.add(first.e.eid);
   let prevX = first.ex, prevY = first.ey;
 
   for (let i = 0; i < maxHits; i++) {
     const pick = (i === 0) ? first : cand.find(o => !used.has(o.e.eid));
     if (!pick) break;
-
     if (i > 0) spawnBeam(prevX, prevY, pick.ex, pick.ey);
 
     let mul = 1;
@@ -467,7 +462,6 @@ function gameLoop(now = performance.now()) {
       if (!laneRect || !Number.isFinite(laneRect.width) || laneRect.width === 0) return;
     }
 
-    // レーンの変化を追従
     const r = laneEl.getBoundingClientRect();
     if (Math.abs(r.top - laneRect.top) > 1 || Math.abs(r.height - laneRect.height) > 1 || Math.abs(r.left - laneRect.left) > 1) {
       laneRect = r;
@@ -483,6 +477,7 @@ function gameLoop(now = performance.now()) {
       const e = enemies[i];
       e.t += dt; e.st += dt;
       if (e.atkCool > 0) e.atkCool -= dt;
+      if (e.spawnGrace > 0) e.spawnGrace -= dt;
 
       let dx = sxLane - e.x, dy = syLane - e.y;
       const dist = Math.hypot(dx, dy) || 1;
@@ -543,27 +538,27 @@ function gameLoop(now = performance.now()) {
 
       e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-      const ec = centerScreen(e.el);
+      const ec = getEnemyCenter(e);
       const br = laneRect;
       const marginX = ESCAPE_MARGIN_X, marginY = ESCAPE_MARGIN_Y;
-      if (ec.x < br.left - marginX || ec.x > br.right + marginX || ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-        const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
-        addLog(`突破（escape）：${e.def.name}（-${escDmg} HP）`, 'alert');
-        damagePlayer(escDmg);
-        removeEnemyById(e.eid, { by:'escape', fade:false });
-        continue;
+      if (e.spawnGrace <= 0) {
+        if (ec.x < br.left - marginX || ec.x > br.right + marginX || ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+          const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
+          if (LOG_ESCAPE) addLog(`突破（escape）：${e.def.name}（-${escDmg} HP）`, 'alert');
+          damagePlayer(escDmg);
+          removeEnemyById(e.eid, { by:'escape', fade:false });
+          continue;
+        }
       }
     }
 
     tryAttack(dt);
     trySpawn(dt);
 
-    // クリア検知（遅延して遷移）
     if (!clearPending && spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
       showClearThenAdvance();
     }
 
-    // Watchdog（停滞対策 + 失敗直後キック）
     const nowMs = performance.now();
     if (gs.running && !gs.paused) {
       const noEnemy = enemies.length === 0 && spawnPlan.alive === 0;
@@ -652,7 +647,7 @@ function failStage() {
 function clearAllEnemies(){ while (enemies.length) { const { eid } = enemies[enemies.length - 1]; removeEnemyById(eid, { by:'clear', fade:false }); } }
 
 /* ========== New Game: hard reset ========== */
-let __expResetRequested = false; // Expモジュール遅延読込への保険
+let __expResetRequested = false;
 
 function resetAllProgressHard(){
   try { localStorage.removeItem(SAVE_KEY); } catch {}
@@ -674,7 +669,6 @@ function resetAllProgressHard(){
 
   try { window.Status?.reset?.(); } catch {}
 
-  // idleLightning* を全削除（このゲーム専用キーの掃除）
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i) || '';
@@ -759,10 +753,7 @@ function ensureBgmInit(){
   day.volume = 0.7; night.volume = 0.7;
   day.loop = true; night.loop = true;
 }
-
-// 既存の applyBgmForStage を置き換え
 function isAudioPlaying(a){ try{ return a && !a.paused && a.currentTime > 0 && !a.ended; }catch{return false;} }
-
 let __bgmRetryT = null;
 function kickBgmSoon(){ clearTimeout(__bgmRetryT); __bgmRetryT = setTimeout(()=>applyBgmForStage(), 200); }
 
@@ -785,15 +776,13 @@ async function applyBgmForStage(){
   try{
     if (other && !other.paused) other.pause();
     if (!isAudioPlaying(desired)) {
-      await desired.play(); // 拒否されても自己復帰で再トライ
+      await desired.play();
     }
-  }catch(e){ /* 自動再生制限などは無視して後でリトライ */ }
+  }catch(e){ /* 自動再生制限: 可視復帰や自己復帰で再トライ */ }
 
   const btn = document.getElementById('btn-bgm');
   if (btn){ btn.setAttribute('aria-pressed','true'); btn.textContent = '♪ BGM ON'; }
 }
-
-// 一度だけ自己復帰リスナーを配線
 function wireBgmSelfRecovery(){
   const day   = document.getElementById('bgm-day');
   const night = document.getElementById('bgm-night');
@@ -807,7 +796,6 @@ function wireBgmSelfRecovery(){
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) kickBgmSoon(); });
   day.dataset.rewire = night.dataset.rewire = '1';
 }
-
 function wireBgmToggleButton(){
   const btn = document.getElementById('btn-bgm'); if (!btn) return;
   if (btn.dataset.wired === '1') return;
