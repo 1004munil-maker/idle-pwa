@@ -163,33 +163,39 @@ body::after{
 .beam.fade{ transition: opacity .12s ease, filter .12s ease; opacity: 0; filter: blur(1px); }
 
 /* (10) Log */
+/* 統一版：.log は absolute のまま、ボタン分の上パディングを追加 */
 .log{
-  position:absolute; top: var(--battle-h); left:0; width:100%; height: var(--log-h);
-  background: var(--panel-3); border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-1);
-  color: #c8ffd4; font-size: 12px; padding: 8px 10px; overflow-y: auto; z-index: 2;
-  scrollbar-gutter: stable both-edges; overscroll-behavior: contain; word-break: break-word;
+  /* 既存の .log 定義（absolute, top:var(--battle-h), height:var(--log-h) など）はそのまま */
+  /* ここでは“上にボタンの分だけ余白”を足すだけ */
+  padding: 36px 10px 8px; /* ← 上 36px でボタンと重ならない */
+  overflow-y: auto;       /* スクロールは有効のまま */
 }
-.log-entry{ margin: 2px 0; }
-.log-entry.dim   { color: #a4c0a9; }
-.log-entry.alert { color: #ff9393; }
-.log-entry.gain  { color: #e9ff93; }
-.log::-webkit-scrollbar{ width: 6px; } .log::-webkit-scrollbar-thumb{ background: #2f3740; border-radius: 6px; } .log::-webkit-scrollbar-track{ background: #0b0d11; }
 
-/* (10.1) Log — no scroll & BGM button in top-right */
-#log{ position: relative; overflow-y: hidden !important; padding-right: 92px; }
-#log::-webkit-scrollbar{ display:none; }
-#log .bgm-toggle{
-  position: absolute; top: 8px; right: 8px; z-index: 5;
-  display:inline-flex; align-items:center; gap:.4em; padding:8px 12px; border-radius: 999px;
-  border: 1px solid rgba(120,160,255,.35); background: linear-gradient(180deg, rgba(28,36,52,.92), rgba(18,24,36,.92));
-  color: #dfe9ff; font-weight: 600; font-size: 13px; letter-spacing: .02em;
+/* ログ右上のBGMトグル（.log 配下に固定） */
+.log .bgm-toggle{
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: .4em;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(120,160,255,.35);
+  background: linear-gradient(180deg, rgba(28,36,52,.92), rgba(18,24,36,.92));
+  color: #dfe9ff;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: .02em;
   box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
-  backdrop-filter: blur(6px); transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
+  backdrop-filter: blur(6px);
+  transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
   cursor: pointer;
 }
-#log .bgm-toggle[aria-pressed="false"]{ opacity: .75; border-color: rgba(120,160,255,.25); }
-@media(hover:hover){
-  #log .bgm-toggle:hover{ transform: translateY(-1px); border-color: rgba(140,180,255,.55); box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12); }
+.log .bgm-toggle[aria-pressed="false"]{
+  opacity: .75;
+  border-color: rgba(120,160,255,.25);
 }
 
 /* (11) Menu */
