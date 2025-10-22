@@ -18,33 +18,58 @@
   <link rel="preload" as="audio" href="./assets/audio/bgm_day.mp3" />
   <link rel="preload" as="audio" href="./assets/audio/bgm_night.mp3" />
 
-  <!-- (3) スタイル（必要最低限・BGMボタン含む） -->
+  <!-- (3) スタイル（必要最低限 + BGMボタン右下） -->
   <link rel="stylesheet" href="./style.css?v=ultra-v5-hp" />
   <style>
-    /* モバイルのダブルタップ拡大抑止 */
+    /* ===== モバイルのダブルタップ拡大抑止 ===== */
     html, body, .game-container, .battlefield, .menu, .hud, button, .chip, #enemy-lane, .spirit-wrap {
       touch-action: manipulation;
     }
     * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
 
-    /* ログ右上のBGMトグル */
-    #log { position: relative; }
-    #btn-bgm.bgm-toggle{
+    /* ===== BGM ボタン（右下フローティング） ===== */
+    .game-container { position: relative; } /* フローティングの基準にする */
+
+    .floating-ui{
       position: absolute;
-      top: 8px; right: 8px;
-      z-index: 5;
-      padding: 6px 10px;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.15);
-      background: rgba(18,22,30,.75);
-      backdrop-filter: saturate(1.1) blur(2px);
-      font: 600 12px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      letter-spacing:.02em;
-      cursor: pointer;
-      transition: transform .08s ease, opacity .2s ease;
+      right: 12px;
+      bottom: calc(12px + env(safe-area-inset-bottom));
+      z-index: 60;
+      pointer-events: none; /* 中のボタンだけクリック可 */
     }
-    #btn-bgm.bgm-toggle[aria-pressed="false"]{ opacity:.7; }
-    #btn-bgm.bgm-toggle:hover{ transform: translateY(-1px); }
+    .floating-ui .bgm-toggle{
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: .4em;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(120,160,255,.35);
+      background: linear-gradient(180deg, rgba(28,36,52,.9), rgba(18,24,36,.9));
+      color: #dfe9ff;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: .02em;
+      box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+      backdrop-filter: blur(6px);
+      transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
+      cursor: pointer;
+    }
+    .floating-ui .bgm-toggle[aria-pressed="false"]{
+      opacity: .75;
+      border-color: rgba(120,160,255,.25);
+    }
+    @media(hover:hover){
+      .floating-ui .bgm-toggle:hover{
+        transform: translateY(-1px);
+        border-color: rgba(140,180,255,.55);
+        box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12);
+      }
+    }
+    @media (max-width: 520px){
+      .floating-ui{ right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
+      .floating-ui .bgm-toggle{ padding: 8px 12px; font-size: 13px; }
+    }
   </style>
 </head>
 <body>
@@ -60,7 +85,7 @@
         <div class="chip"><span class="label">Stage</span><span id="stageLabel">1-1 / 1F</span></div>
         <div class="chip"><span class="label">残り</span><span id="remain">--</span></div>
 
-        <!-- レベル / EXP（Exp.jsがなくても見た目だけ） -->
+        <!-- レベル / EXP（Exp.jsがなくても見た目だけ表示） -->
         <span id="levelChip" class="chip">Lv 1</span>
         <div style="width:120px;height:6px;background:#233040;border-radius:4px;overflow:hidden;border:1px solid #3a4a63">
           <div id="expBar" style="height:100%;width:0%;background:linear-gradient(90deg,#78ffa8,#32e6ff)"></div>
@@ -80,8 +105,9 @@
       </div>
       <div id="enemy-lane" class="enemy-lane"></div>
     </section>
-<!-- (4-3) ログ -->
-<section id="log" class="log" aria-live="polite"></section>
+
+    <!-- (4-3) ログ -->
+    <section id="log" class="log" aria-live="polite"></section>
 
     <!-- (4-4) メニュー -->
     <section class="menu">
@@ -115,17 +141,19 @@
         </p>
       </div>
     </div>
-      <!-- (4-6) フローティングUI（右下） -->
-  <div class="floating-ui">
-    <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
-  </div>
-</div> <!-- ← これが .game-container の閉じ -->
-  </div>
+
+    <!-- (4-6) フローティングUI（右下） -->
+    <div class="floating-ui">
+      <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
+    </div>
+  </div> <!-- ← .game-container はここで閉じる（余計な </div> は不要） -->
 
   <!-- (5) スクリプト -->
+  <!-- (5-1) EnemyDB を先に（game.js が参照） -->
   <script src="./assets/js/enemy-db.js?v=1"></script>
+  <!-- (5-2) ゲーム本体 -->
   <script src="./assets/js/game.js?v=6.3-stable"></script>
-  <!-- 任意: Exp/Status がある場合 -->
+  <!-- (5-3) 任意: Exp / Status がある場合 -->
   <script src="./assets/js/exp.js?v=proto-01"></script>
   <script src="./assets/js/status.js?v=proto-01"></script>
 
@@ -143,14 +171,74 @@
     });
   </script>
 
-  <!-- (7) Service Worker -->
+  <!-- (7) BGMトグル（右下ボタン） -->
+  <script>
+    (function () {
+      const btn = document.getElementById('btn-bgm');
+      if (!btn) return;
+
+      const KEY = 'bgmEnabled';
+      function getEnabled() {
+        const v = localStorage.getItem(KEY);
+        return v == null ? true : v === '1';
+      }
+      function setEnabled(on) { localStorage.setItem(KEY, on ? '1' : '0'); }
+      function pauseAllRaw() {
+        document.getElementById('bgm-day')?.pause();
+        document.getElementById('bgm-night')?.pause();
+      }
+      function syncButton() {
+        const on = getEnabled();
+        btn.setAttribute('aria-pressed', String(on));
+        btn.textContent = on ? '♪ BGM ON' : '♪ BGM OFF';
+      }
+      async function applyNow() {
+        // game.js 側が提供していればそれを使う
+        if (typeof window.ensureBgmInit === 'function') window.ensureBgmInit();
+        if (typeof window.applyBgmForStage === 'function') {
+          window.applyBgmForStage();
+        } else {
+          // フォールバック：ONなら day/night を切り替え、OFFなら停止
+          const on = getEnabled();
+          const isNight = !!window.GameAPI?.getStageInfo?.().isNight;
+          const day = document.getElementById('bgm-day');
+          const night = document.getElementById('bgm-night');
+          if (!day || !night) return;
+          if (on) {
+            (isNight ? day : night).pause();
+            const t = isNight ? night : day;
+            try { await t.play(); } catch {}
+          } else {
+            pauseAllRaw();
+          }
+        }
+        syncButton();
+      }
+      // 初期反映
+      syncButton();
+      // クリックでON/OFF
+      btn.addEventListener('click', async () => {
+        const next = !getEnabled();
+        setEnabled(next);
+        await applyNow();
+      });
+      // ステージ夜昼の変更に追従（GameAPI があれば）
+      if (window.GameAPI?.onStageChange) {
+        window.GameAPI.onStageChange(applyNow);
+      }
+      // ロード直後に同期
+      window.addEventListener('load', () => { setTimeout(applyNow, 0); });
+    })();
+  </script>
+
+  <!-- (8) Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     }
   </script>
 
-  <!-- (8) ズーム抑止（iOS Safari 対策）-->
+  <!-- (9) ズーム抑止（iOS Safari 対策）-->
   <script>
     (function () {
       let lastTouchEnd = 0;
@@ -170,7 +258,7 @@
     })();
   </script>
 
-  <!-- (9) BGM Audio elements -->
+  <!-- (10) BGM Audio elements -->
   <audio id="bgm-day"   src="./assets/audio/bgm_day.mp3"   preload="auto" loop></audio>
   <audio id="bgm-night" src="./assets/audio/bgm_night.mp3" preload="auto" loop></audio>
 </body>
