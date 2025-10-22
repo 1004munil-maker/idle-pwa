@@ -258,9 +258,9 @@ function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
 
-  const sc = centerScreen(spiritEl);
-  const sx = sc.x - laneRect.left;
-  const sy = sc.y - laneRect.top;
+const sc = centerScreen(spiritEl);
+const sx = sc.x - laneRect.left;
+const sy = sc.y - laneRect.top;
 
   const r2 = lightning.range * lightning.range;
   const cand = [];
@@ -326,6 +326,7 @@ function tryAttack(dt) {
 }
 
 /* (13) ---------- ループ（移動/衝突=ダメージ/突破=ダメージ） ---------- */
+/* (13) ---------- ループ（移動/衝突/突破=失敗） ---------- */
 let last = performance.now();
 
 function getSpiritCenter(){ return centerScreen(spiritEl); }
@@ -352,9 +353,11 @@ function gameLoop(now = performance.now()) {
     const e = enemies[i];
     e.t += dt;
 
-    // 精霊の lane 座標
-    const sxLane = sc.x - laneRect.left;
-    const syLane = sc.y - laneRect.top;
+    // 精霊の lane 座標（範囲内にクランプ）
+    let sxLane = sc.x - laneRect.left;
+    let syLane = sc.y - laneRect.top;
+    sxLane = Math.max(0, Math.min(laneRect.width, sxLane));
+    syLane = Math.max(0, Math.min(laneRect.height, syLane));
 
     // ステアリング
     let dx = sxLane - e.x, dy = syLane - e.y;
@@ -389,15 +392,15 @@ function gameLoop(now = performance.now()) {
     if (dist <= (R_SPIRIT + R_ENEMY)) {
       addLog(`⚠️ 被弾：${e.type}（-${e.dmg} HP）`, 'alert');
       damagePlayer(e.dmg);
-      // 敵は消滅
       releaseEnemyEl(e.el);
       enemies.splice(i, 1);
       spawnPlan.alive--;
       continue;
     }
 
-    // 画面外保険（突破＝少量ダメージ扱い：runner>swarm>tank で変化させてもOK）
-    if (e.x <= -60 || e.y < -80 || e.y > laneRect.height + 80) {
+    // 画面外突破（lane 基準でチェック）
+    if (e.x < -40 || e.x > laneRect.width + 40 ||
+        e.y < -60 || e.y > laneRect.height + 60) {
       addLog(`突破（escape）：${e.type}（-${Math.ceil(e.dmg*0.5)} HP）`, 'alert');
       damagePlayer(Math.ceil(e.dmg * 0.5));
       releaseEnemyEl(e.el);
@@ -413,7 +416,7 @@ function gameLoop(now = performance.now()) {
   // スポーン（残数があれば）
   trySpawn(dt);
 
-  // クリア判定：出し切って、盤面が空になったら
+  // クリア判定
   if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
     nextStage();
   }
