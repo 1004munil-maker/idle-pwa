@@ -80,7 +80,7 @@
     const goldNowNum = Number(typeof game?.getGold === 'function' ? game.getGold() : 0) || 0;
     const goldNow = goldNowNum.toLocaleString();
     wrap.innerHTML = `
-      <div style="max-width:560px; margin:48px auto; background:#121824; border:1px solid #29364a; border-radius:16px; padding:16px;">
+      <div style="max-width:560px; margin:10px auto; background:#121824; border:1px solid #29364a; border-radius:16px; padding:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:10px;">
             <b style="font-size:18px;">ステータス強化</b>
