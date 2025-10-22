@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>雷精霊を育てよ！ | Idle Lightning</title>
 
-  <!-- (2) PWA（必要ならパスはプロジェクトに合わせて） -->
+  <!-- (2) PWA -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#0f1115" />
 
@@ -23,9 +23,7 @@
         <div class="chip dia"><span class="label">Dia</span><span id="diamond">0</span></div>
         <div class="chip dps"><span class="label">DPS</span><span id="dps">0</span></div>
         <div class="chip chain"><span class="label">Chain</span><span id="chain">2/15</span></div>
-        <!-- ★ 進行表示 -->
         <div class="chip"><span class="label">Stage</span><span id="stageLabel">1-1 / 1F</span></div>
-        <!-- ★ 自分HP表示 -->
         <div class="chip"><span class="label">HP</span><span id="playerHpLabel">100/100</span></div>
       </div>
     </div>
@@ -50,7 +48,6 @@
       <button class="btn-power">攻撃力</button>
       <button class="btn-rate">速度</button>
       <button class="btn-range">射程</button>
-      <!-- ★ 一時停止/再開/リトライはJSで動作付与 -->
       <button id="btn-pause">一時停止</button>
       <button id="btn-resume">再開</button>
       <button id="btn-retry">リトライ</button>
@@ -72,8 +69,9 @@
     </div>
   </div>
 
-  <!-- (5) ゲーム本体 -->
-  <script src="./game.js?v=prog-v2-hp"></script>
+  <!-- (5) ゲーム本体 & アップグレード（順序に注意！） -->
+  <script src="./assets/js/game.js?v=prog-v2-hp"></script>
+  <script src="./assets/js/upgrades.js?v=proto-01"></script>
 
   <!-- (6) Service Worker 登録（任意） -->
   <script>
