@@ -59,14 +59,18 @@
       <button id="btn-status">ステータス</button>
       <button class="btn-rate">NONE</button>
       <button class="btn-range">NONE</button>
-  <!-- index.html のメニュー内 -->
-<button id="btn-gear">装備</button>
 
-<script>
-  document.getElementById('btn-gear')?.addEventListener('click', () => {
-    window.location.href = './gear.html';  // gear.html に移動
-  });
-</script>
+      <!-- (4-4-1) 装備ボタン：そのまま -->
+      <button id="btn-gear">装備</button>
+
+      <script>
+        // (4-4-1a) 装備ボタンの遷移（DOM直後なのでOK）
+        document.getElementById('btn-gear')?.addEventListener('click', () => {
+          window.location.href = './gear.html';
+        });
+      </script>
+
+      <!-- (4-4-2) 「宝物」ボタン（IDそのまま） -->
       <button id="btn-resume">宝物</button>
       <button id="btn-retry">リトライ</button>
     </section>
@@ -88,22 +92,28 @@
   </div>
 
   <!-- (5) スクリプト（順序重要！） -->
-  <script src="./assets/js/game.js?v=prog-v5.3"></script>
+  <!-- (5-1) EnemyDB を先に（game.js から参照するため） -->
+  <script src="./assets/js/enemy-db.js?v=1"></script>
+  <!-- (5-2) ゲーム本体（v表記も更新してキャッシュ更新） -->
+  <script src="./assets/js/game.js?v=prog-v6.0.1"></script>
+  <!-- (5-3) EXP / (5-4) Status は後で -->
   <script src="./assets/js/exp.js?v=proto-01"></script>
   <script src="./assets/js/status.js?v=proto-01"></script>
 
-  <!-- (6) 初期化 -->
+  <!-- (6) 初期化（重複initガード付き） -->
   <script>
     window.addEventListener('load', () => {
-      // Exp / Status を GameAPI に接続
-      if (window.GameAPI && window.Exp) {
-        window.Exp.init(window.GameAPI);               // ← これが無いとLv上がらない
+      // (6-1) GameAPI が立っていれば Exp を一度だけ init
+      if (window.GameAPI && window.Exp && !window.Exp?._inited) {
+        try { window.Exp.init(window.GameAPI); window.Exp._inited = true; } catch (e) {}
       }
-      if (window.GameAPI && window.Status) {
-        window.Status.init(window.GameAPI);
-        document.getElementById('btn-status')
-          ?.addEventListener('click', () => window.Status.open(window.GameAPI));
+      // (6-2) 同様に Status も一度だけ init
+      if (window.GameAPI && window.Status && !window.Status?._inited) {
+        try { window.Status.init(window.GameAPI); window.Status._inited = true; } catch (e) {}
       }
+      // (6-3) ステータスボタンでUI開く
+      document.getElementById('btn-status')
+        ?.addEventListener('click', () => window.Status?.open?.(window.GameAPI));
     });
   </script>
 

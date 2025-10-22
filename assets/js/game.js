@@ -519,58 +519,106 @@ function gameLoop(now = performance.now()) {
 
         // 状態遷移
 
- if (e.state === 'chase') {
-  // 接近：通常移動（基本）
-  const desiredVx = nx * e.speed;
-  const desiredVy = ny * e.speed;
-  const steer = 0.5;
+          // 接近：通常移動（基本）
+    const desiredVx = nx * e.speed;
+    const desiredVy = ny * e.speed;
+    const steer = 0.5;
 
-  // いまの近接しきい値
-  const A  = e.def.atk;
-  const rE = enemyRadius(e);
-  const rr = rS + rE + HIT_MARGIN;
+    const A  = e.def.atk;
+    const rE = enemyRadius(e);
+    const rr = rS + rE + HIT_MARGIN;
+    const inMelee = dist <= Math.max(rr, A.range);
 
-  // ★CD中は“ホールド”する距離（精霊の周囲のリング上）
-  const clampDist = Math.max(rr, A.range);
+    if (e.state === 'chase') {
+      // 接近：通常移動
+      const desiredVx = nx * e.speed;
+      const desiredVy = ny * e.speed;
+      const steer = 0.5;
+      e.vx += (desiredVx - e.vx) * steer;
+      e.vy += (desiredVy - e.vy) * steer;
 
-  if (e.atkCool > 0 && dist < clampDist + 2) {
-    // ---- 近接CD中のホールド：sway/pushを止め、リング上に吸着させる ----
-    const tx = sxLane - nx * clampDist;
-    const ty = syLane - ny * clampDist;
+      // ふらつき
+      const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
+      e.x += e.vx * dt;
+      e.y += (e.vy + sway * 0.8) * dt;
 
-    // クリティカルダンピングっぽくスッと寄せる（数値は好みで）
-    e.x += (tx - e.x) * 0.35;
-    e.y += (ty - e.y) * 0.35;
-    e.vx = 0; e.vy = 0;
+      // 押し込み（見た目詰まり防止）
+      if (dist < (rr + ENGAGE_EXTRA)) {
+        e.x += nx * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
+        e.y += ny * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
+      }
 
-    // 近すぎる微小誤差で揺れないよう最終的にピタッと合わせる
-    if (Math.hypot(e.x - tx, e.y - ty) < 0.5) { e.x = tx; e.y = ty; }
-  } else {
-    // ---- 通常の追尾 + sway ----
-    e.vx += (desiredVx - e.vx) * steer;
-    e.vy += (desiredVy - e.vy) * steer;
-
-    const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
-    e.x += e.vx * dt;
-    e.y += (e.vy + sway * 0.8) * dt;
-
-    // 押し込み（見た目詰まり防止）
-    if (dist < (rr + ENGAGE_EXTRA)) {
-      e.x += nx * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
-      e.y += ny * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
+      // 近接に入ったら windup へ（CD明け）
+      if (inMelee && e.atkCool <= 0) {
+        e.state = 'windup';
+        e.st = 0;
+        e.vx = e.vy = 0;
+        e.el.classList.add('pose-windup');
+      }
     }
-  }
+    else if (e.state === 'windup') {
+      // その場で予備動作
+      if (e.st >= A.windup) {
+        e.strikeFromX = e.x;
+        e.strikeFromY = e.y;
 
-  // 近接に入ったら windup へ（CD明けのみ）
-  // ※微小揺れで連打しないよう 1px のヒステリシスを入れる
-  const enterDist = Math.max(rr, A.range) - 1;
-  if (dist <= enterDist && e.atkCool <= 0) {
-    e.state = 'windup';
+        // 左へ突く（UIが左=前の想定）
+        e.strikeToX   = e.x - A.lunge;
+        e.strikeToY   = e.y;
+
+        // ★精霊方向へ突きたい場合は下の2行に差し替え
+        // e.strikeToX = e.x + nx * A.lunge;
+        // e.strikeToY = e.y + ny * A.lunge;
+
+        e.strikeHitDone = false;
+        e.state = 'strike';
+        e.st = 0;
+        e.el.classList.remove('pose-windup');
+        e.el.classList.add('pose-strike');
+      }
+    }
+    else if (e.state === 'strike') {
+  const t = Math.min(1, e.st / A.active);
+  e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
+  e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
+
+  if (!e.strikeHitDone && e.st >= A.active) {
+    e.strikeHitDone = true;
+    const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
+    addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
+    damagePlayer(hitDmg);
+
+    e.recoilFromX = e.x;
+    e.recoilFromY = e.y;
+    e.recoilToX   = e.strikeFromX;
+    e.recoilToY   = e.strikeFromY;
+
+    e.state = 'recoil';
     e.st = 0;
-    e.vx = e.vy = 0;
-    e.el.classList.add('pose-windup');
-  }
+
+    // ✅ rate を秒数扱いでそのまま使う
+    e.atkCool = A.rate;  
+
+    e.el.classList.remove('pose-strike');
+    e.el.classList.add('pose-recoil');
+  
 }
+    }
+    else if (e.state === 'recoil') {
+      // 後退モーション（A.recoil の間で線形補間）
+      const t = Math.min(1, e.st / A.recoil);
+      const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
+      const ry = e.recoilFromY + (e.recoilToY - e.recoilFromY) * t;
+      e.x = rx;
+      e.y = ry;
+
+      // 終わったら chase へ
+      if (e.st >= A.recoil) {
+        e.state = 'chase';
+        e.st = 0;
+        e.el.classList.remove('pose-recoil');
+      }
+    }
 
     // 表示反映
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
@@ -634,22 +682,15 @@ function nextStage() {
 
 function failStage() {
   clearAllEnemies();
-
-  // ステートを章頭に戻す
   gs.stage = 1;
   gs.isNight = false;
-
-  // HPは即満タンに戻す（UI更新も）
-  playerHp = playerHpMax;
-  updatePlayerHpUI();
-
-  // 走行フラグを確実にON
+  spawnTimer = 0;
+  baseSpawnDelay = 1000;
+  setupStageCounters();
+  addLog(`↩︎ リトライ：${gs.chapter}-1 / ${gs.floor}F から`, 'alert');
   gs.paused = false;
   gs.running = true;
-
-  // ステージ頭のカウンタや湧きをまとめて初期化
-  startStageHead();   // ← この中で setupStageCounters() が呼ばれる
-
+  startStageHead();
   saveGame();
 }
 
