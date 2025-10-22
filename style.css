@@ -227,6 +227,7 @@ body::after{
   height: 100%; z-index: 1;
 }
 
+
 /* 敵（球） */
 .enemy{
   position: absolute;
@@ -389,3 +390,4 @@ body::after{
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
+

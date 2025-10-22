@@ -1,5 +1,7 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v5.3 Stable, collision fix)
+   Idle Lightning - game.js (Progression v5.4 Stable)
+   - Collision tuned (size-based radius + push)
+   - Faster spawn (stage-head burst + paced stream)
    ---------------------------------------------------------
    01) DOM参照
    02) レイアウト計測
@@ -7,12 +9,12 @@
    04) セーブ/ロード
    05) ゲームステート
    06) 進行UI更新
-   07) 雷 & 判定（基準値は Status で上書き可）
+   07) 雷 & 判定
    08) 敵タイプ/プール/配列/ID
    09) ステージ・係数
-   10) スポーン制御（EID付与 + resetEnemyEl）
+   10) スポーン制御（バースト湧き）
    11) ビーム演出
-   12) ヘルパ（中心/距離/安全削除/被ダメ）
+   12) ヘルパ
    13) 攻撃（連鎖）★Crit & Gold倍率適用
    14) ループ（移動/衝突/突破）
    15) ステージ遷移（★クリアEXP）
@@ -20,6 +22,13 @@
    17) GameAPI 公開
    18) 初期化（★Status.init 連携・ボタン）
    ========================================================= */
+
+/* ====== 衝突判定チューニング（必要ならここだけ触ればOK） ====== */
+const HIT_SCALE_SPIRIT = 0.42; // 精霊半径=見た目サイズ×係数（0.38〜0.46）
+const HIT_SCALE_ENEMY  = 0.38; // 敵半径   （0.34〜0.44）
+const HIT_MARGIN       = 2;    // 取りこぼし防止マージン(1〜4)
+const ENGAGE_EXTRA     = 6;    // 押し込み開始距離 (r合計+これ)
+const PUSH_STRENGTH    = 0.10; // 押し込み強度(0.08〜0.14)
 
 /* 01) ---------- DOM参照 ---------- */
 const laneEl   = document.getElementById('enemy-lane');
@@ -183,7 +192,7 @@ function getEnemyEl() {
 }
 function releaseEnemyEl(el) { el.remove(); enemyPool.push(el); }
 
-// ★ 再利用リセット
+// 再利用リセット
 function resetEnemyEl(el){
   el.className = 'enemy';
   el.style.cssText = '';
@@ -213,12 +222,26 @@ const NIGHT_DIAMOND_RATE = 0.10;
 // カウンタ
 let spawnPlan = { total: 0, spawned: 0, alive: 0 };
 
-/* 10) ---------- スポーン制御 ---------- */
-let laneWidthCached = 0, laneHeightCached = 0;
+/* 10) ---------- スポーン制御（バースト湧き） ---------- */
+let spawnTimer = 0;
+let baseSpawnDelay = 700;      // 標準間隔（ms）
+let burstLeft = 0;
+function setupStageCounters() {
+  spawnPlan.total   = stageTotalCount(gs.chapter, gs.stage);
+  spawnPlan.spawned = 0;
+  spawnPlan.alive   = 0;
+  spawnTimer = 0;
+
+  // ステージ頭は数体まとめて湧かせてテンポUP
+  burstLeft = Math.min(5, spawnPlan.total);               // 最大5体まで即湧き
+  baseSpawnDelay = Math.max(450, 800 - gs.stage*25);      // ステージ進むほど早く
+  updateStageLabel();
+  updateRemainLabel();
+  addLog(`Stage 開始：${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight?' 🌙':''}`, 'dim');
+}
+
 function spawnEnemy(type = pickEnemyType()) {
   if (!laneRect || laneRect.width === 0) measureRects();
-  laneWidthCached  = laneRect.width;
-  laneHeightCached = laneRect.height;
 
   const t  = ENEMY_TYPES[type];
   const el = getEnemyEl();
@@ -231,11 +254,10 @@ function spawnEnemy(type = pickEnemyType()) {
 
   el.querySelector('.icon').textContent = ENEMY_ICONS[type] || '👾';
 
-  const startX = laneWidthCached - 60 - Math.random() * 40;
-  const startY = Math.max(16, Math.min(
-    laneHeightCached - 16,
-    laneHeightCached * (0.10 + 0.80 * Math.random())
-  ));
+  const laneWidth  = laneRect.width;
+  const laneHeight = laneRect.height;
+  const startX = laneWidth - 60 - Math.random() * 40;
+  const startY = Math.max(16, Math.min(laneHeight - 16, laneHeight * (0.10 + 0.80 * Math.random())));
 
   const hpMul = hpMultiplier();
   const hpMax = Math.max(1, Math.round(t.hp * hpMul));
@@ -261,14 +283,20 @@ function spawnEnemy(type = pickEnemyType()) {
   updateRemainLabel();
 }
 
-// ディレイ
-let spawnTimer = 0;
-let baseSpawnDelay = 800; // ms
 function trySpawn(dt) {
   if (spawnPlan.spawned >= spawnPlan.total) return;
   if (spawnPlan.alive   >= MAX_CONCURRENT) return;
+
+  // 頭のバースト：フレーム毎に連続湧き
+  if (burstLeft > 0) {
+    spawnEnemy();
+    burstLeft--;
+    return;
+  }
+
+  // 以降はペース湧き（場が詰まると若干ゆっくり）
   spawnTimer += dt * 1000;
-  const dynamicDelay = baseSpawnDelay + Math.max(0, (spawnPlan.alive - 10) * 10);
+  const dynamicDelay = baseSpawnDelay + Math.max(0, (spawnPlan.alive - 12) * 12);
   if (spawnTimer >= dynamicDelay) {
     spawnTimer = 0;
     spawnEnemy();
@@ -303,7 +331,7 @@ function dist2(ax, ay, bx, by) {
   return dx * dx + dy * dy;
 }
 
-// ★EXPフォールバック（Exp未読込でも動く）
+// EXPフォールバック（Exp未読込でも動く）
 const ExpAPI = {
   expFromKill(gs, type){
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
@@ -396,7 +424,7 @@ function tryAttack(dt) {
 
     if (i > 0) spawnBeam(prevX, prevY, pick.ex, pick.ey);
 
-    // ★Crit：1hit毎に抽選
+    // Crit
     let mul = 1;
     if (window.Status && Math.random() < window.Status.getCritChance()) {
       mul = window.Status.getCritMul();
@@ -418,7 +446,7 @@ function tryAttack(dt) {
     dmg *= lightning.falloff;
   }
 
-  // 撃破処理（★Gold倍率 & EXP）
+  // 撃破処理（Gold倍率 & EXP）
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
@@ -430,7 +458,6 @@ function tryAttack(dt) {
       const gainG = Math.max(1, Math.round(e.reward * gMul));
       gold += gainG; goldEl.textContent = gold;
 
-      // ★EXP: キル時（ログも出す）
       const expGain = ExpAPI.expFromKill(gs, e.type);
       ExpAPI.addExp(expGain, 'kill');
       addLog(`+${expGain} EXP (kill)`, 'gain');
@@ -471,6 +498,7 @@ function gameLoop(now = performance.now()) {
     const e = enemies[i];
     e.t += dt;
 
+    // 追尾（lane座標）
     let sxLane = sc.x - laneRect.left;
     let syLane = sc.y - laneRect.top;
     sxLane = Math.max(0, Math.min(laneRect.width,  sxLane));
@@ -502,58 +530,56 @@ function gameLoop(now = performance.now()) {
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
     // ---- 衝突（lane座標で判定 + 押し込み + フェード除去）----
-{
-  // 精霊の中心を lane 座標へ変換（※移動も lane 座標なので合わせる）
-  const sc = getSpiritCenter(); // 画面座標
-  const sxLane = Math.max(0, Math.min(laneRect.width,  sc.x - laneRect.left));
-  const syLane = Math.max(0, Math.min(laneRect.height, sc.y - laneRect.top));
+    {
+      // lane座標での距離
+      const dx2 = sxLane - e.x;
+      const dy2 = syLane - e.y;
+      const d2  = dx2*dx2 + dy2*dy2;
 
-  // 敵の中心は e.x/e.y（すでに lane 座標）
-  const dx = sxLane - e.x;
-  const dy = syLane - e.y;
-  const dist2Lane = dx*dx + dy*dy;
+      // 実サイズ由来の半径
+      const sr = spiritEl.getBoundingClientRect();
+      const er = e.el.getBoundingClientRect();
+      const rSpirit = (Math.max(sr.width, sr.height) * HIT_SCALE_SPIRIT) || 16;
+      const rEnemy  = (Math.max(er.width, er.height) * HIT_SCALE_ENEMY)  || 12;
+      const rr = rSpirit + rEnemy + HIT_MARGIN;
 
-  // 当たり半径（取りこぼし防止に margin 少し足す）
-  const rSpirit = 18;   // 精霊の当たり半径（見た目より少し大きめでもOK）
-  const rEnemy  = 14;   // 敵の当たり半径
-  const margin  = 3;    // 取りこぼし防止マージン
-  const rr = rSpirit + rEnemy + margin;
+      // 当たり
+      if (d2 <= rr*rr) {
+        const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+        addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
+        damagePlayer(hitDmg);
+        removeEnemyById(e.eid, { by:'collision', fade:true });
+        continue;
+      }
 
-  // ★ヒット判定（lane座標で距離比較）
-  if (dist2Lane <= rr * rr) {
-    const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
-    addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-    damagePlayer(hitDmg);
-    removeEnemyById(e.eid, { by:'collision', fade:true });
-    continue;
+      // 押し込み（見た目で詰まらないように少し前に進める）
+      const engage = rr + ENGAGE_EXTRA;
+      if (d2 < engage*engage) {
+        const invLen = 1 / (Math.sqrt(d2) || 1);
+        const nx = dx2 * invLen;
+        const ny = dy2 * invLen;
+        e.x += nx * (engage - Math.sqrt(d2)) * PUSH_STRENGTH;
+        e.y += ny * (engage - Math.sqrt(d2)) * PUSH_STRENGTH;
+        e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
+      }
+    }
+
+    // ---- 突破（画面外）----
+    {
+      const ec = getEnemyCenter(e); // 画面座標
+      const br = laneRect;
+      const marginX = 120, marginY = 160;
+      if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
+          ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+        const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
+        addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
+        damagePlayer(escDmg);
+        removeEnemyById(e.eid, { by:'escape', fade:false });
+        continue;
+      }
+    }
   }
 
-  // ★接近時の押し込み（“精霊の前で止まる”見た目を防ぐ）
-  const engage = 42;        // この距離内なら押し込む
-  if (dist2Lane < engage * engage) {
-    const push = 0.12;      // 押し込み係数（0.10〜0.18くらいで調整）
-    e.x += dx * push;
-    e.y += dy * push;
-    e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
-  }
-}
-
-// ---- 突破（画面外）----
-// ※これは画面座標でOK（境界は画面基準だから）
-{
-  const ec = getEnemyCenter(e); // 画面座標（敵中心）
-  const br = laneRect;
-  const marginX = 120, marginY = 160;
-  if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
-      ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-    const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
-    addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
-    damagePlayer(escDmg);
-    removeEnemyById(e.eid, { by:'escape', fade:false });
-    continue;
-  }
-}
-}
   tryAttack(dt);
   trySpawn(dt);
 
@@ -565,16 +591,6 @@ function gameLoop(now = performance.now()) {
 }
 
 /* 15) ---------- ステージ遷移 ---------- */
-function setupStageCounters() {
-  spawnPlan.total   = stageTotalCount(gs.chapter, gs.stage);
-  spawnPlan.spawned = 0;
-  spawnPlan.alive   = 0;
-  spawnTimer = 0;
-  updateStageLabel();
-  updateRemainLabel();
-  addLog(`Stage 開始：${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight?' 🌙':''}`, 'dim');
-}
-
 function startStageHead() {
   gs.isNight = (gs.stage === 10);
   setupStageCounters();
@@ -586,8 +602,7 @@ function startStageHead() {
 function nextStage() {
   addLog(`✅ クリア：${gs.chapter}-${gs.stage} / ${gs.floor}F`, 'gain');
 
- // EXP: ステージクリア時ボーナス（ログも出す）
-  const clearExp = ExpAPI.expFromStageClear(gs);  
+  const clearExp = ExpAPI.expFromStageClear(gs);
   ExpAPI.addExp(clearExp, 'clear');
   addLog(`+${clearExp} EXP (clear)`, 'gain');
 
@@ -613,7 +628,7 @@ function failStage() {
   gs.stage = 1;
   gs.isNight = false;
   spawnTimer = 0;
-  baseSpawnDelay = 800;
+  baseSpawnDelay = 700;
   setupStageCounters();
   addLog(`↩︎ リトライ：${gs.chapter}-1 / ${gs.floor}F から`, 'alert');
   gs.paused = false;
