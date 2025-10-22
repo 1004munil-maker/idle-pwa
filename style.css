@@ -390,3 +390,31 @@ body::after{
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
+
+/* ===== BGM トグル（ログ右上） ===== */
+.log { position: relative; } /* ボタンのabsolute基準 */
+.bgm-toggle {
+  position: absolute;
+  top: 8px; right: 8px;
+  z-index: 5;
+  padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  backdrop-filter: blur(4px);
+  color: #e8f0ff;
+  font: 500 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+  letter-spacing: .02em;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .1s ease, background .2s ease, border-color .2s ease, opacity .2s ease;
+}
+.bgm-toggle:hover { transform: translateY(-1px); }
+.bgm-toggle:active { transform: translateY(0); }
+.bgm-toggle[aria-pressed="false"] {
+  background: rgba(255,255,255,.03);
+  border-color: rgba(255,255,255,.08);
+  color: #a8b6cc;
+  opacity: .9;
+}

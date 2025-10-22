@@ -1,11 +1,12 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.2-num-annotated
+   Idle Lightning - game.js (EnemyDB連携) v6.3-num-annotated
    変更要約:
    - 近接中は毎フレーム停止＆recoil終端スナップ
    - 押し込みの向きを修正（接触時に離す）
    - Retryボタンのガード削除（常時動作）
    - 失敗後に停滞したら自動再セットのウォッチドッグ
    - ステータス強化見出しの右に囲みゴールドを表示
+   - BGM導入（昼/夜自動切替、ON/OFFトグル、フェード）
    ========================================================= */
 
 /* ========== (1) 当たり判定・押し込みチューニング ========== */
@@ -29,6 +30,11 @@ const spiritEl = document.querySelector('.spirit');
 const playerHpBarEl   = document.getElementById('player-hp');
 const playerHpFillEl  = playerHpBarEl?.querySelector('.fill');
 const playerHpLabelEl = document.getElementById('playerHpLabel');
+
+// (2-BGM) BGM用DOM（HTMLに無ければ自動で無効化）
+const btnBgm   = document.getElementById('btn-bgm');
+const bgmDay   = document.getElementById('bgm-day');
+const bgmNight = document.getElementById('bgm-night');
 
 /* ========== (3) スタート/メニュー DOM ========== */
 const startScreenEl  = document.getElementById('start-screen');
@@ -282,7 +288,7 @@ function spawnEnemy(type = pickEnemyType()) {
     strikeFromX: 0, strikeFromY: 0,
     strikeToX: 0,   strikeToY: 0,
     strikeHitDone: false,
-    // recoil（ASCIIで統一）
+    // recoil
     recoilFromX: 0, recoilFromY: 0,
     recoilToX: 0,   recoilToY: 0,
   });
@@ -656,6 +662,8 @@ function startStageHead() {
   playerHp = playerHpMax;
   updatePlayerHpUI();
   measureRects();
+  // (27.5) BGM: ステージ開始ごとに適用
+  applyBgmForStage();
 }
 
 function nextStage() {
@@ -721,6 +729,8 @@ function hideStartScreen() {
   gs.running = true;
   gs.paused = false;
   measureRects();
+  // (27.6) BGM: ユーザ操作直後で解禁 → 再生
+  ensureBgmInit(); 
   startStageHead();
 }
 
@@ -851,11 +861,9 @@ function queryByText(root, tagSelector, contains){
 /* ========== (26) ステータス強化見出しの右に囲みゴールド ========== */
 function mountStatusGoldPill(){
   try{
-    // パネルのルート候補（Status側のDOM構造を想定しすぎない）
     const root = document.querySelector('[data-status-root], .status, .status-modal, #status') || document.body;
     if (!root) return;
 
-    // 「ステータス強化」を含む見出しを探す
     const title = queryByText(root, 'h1, h2, .title, [data-title]', 'ステータス強化');
     if (!title) return;
 
@@ -873,3 +881,96 @@ function mountStatusGoldPill(){
     pill.textContent = `💰 ${gold.toLocaleString()}`;
   }catch{}
 }
+
+/* ========== (27) BGM: 状態・関数群 ========== */
+const BGM_PREF_KEY = 'idleLightningBgmPref';
+const bgm = {
+  inited: false,
+  enabled: true,
+  vol: 0.6,
+  current: null,   // 'day' | 'night' | null
+  fadeReq: 0
+};
+try {
+  const pref = JSON.parse(localStorage.getItem(BGM_PREF_KEY) || '{}');
+  if (typeof pref.enabled === 'boolean') bgm.enabled = pref.enabled;
+  if (typeof pref.vol === 'number')      bgm.vol     = Math.max(0, Math.min(1, pref.vol));
+} catch {}
+
+function saveBgmPref(){
+  try{ localStorage.setItem(BGM_PREF_KEY, JSON.stringify({enabled: bgm.enabled, vol: bgm.vol})); }catch{}
+}
+function labelBgm(){
+  if (!btnBgm) return;
+  btnBgm.textContent = bgm.enabled ? '♪ BGM: ON' : '♪ BGM: OFF';
+}
+labelBgm();
+
+function ensureBgmInit(){
+  if (bgm.inited) return;
+  if (!bgmDay || !bgmNight) { bgm.inited = true; return; } // 音源が無ければスキップ
+  [bgmDay, bgmNight].forEach(a=>{ if (a) a.volume = 0; });
+  bgm.inited = true;
+}
+
+function stopAll(){
+  [bgmDay, bgmNight].forEach(a=>{
+    if (!a) return;
+    a.pause();
+    try{ a.currentTime = 0; }catch{}
+  });
+}
+
+function fadeTo(targetTrack, dur = 800){
+  if (!bgm.enabled) { stopAll(); bgm.current = null; return; }
+  if (!bgmDay || !bgmNight) return;
+  ensureBgmInit();
+
+  const fromEl = (bgm.current === 'day') ? bgmDay : (bgm.current === 'night') ? bgmNight : null;
+  const toEl   = (targetTrack === 'day') ? bgmDay : bgmNight;
+  if (!toEl) return;
+
+  if (bgm.current === targetTrack) {
+    toEl.volume = bgm.vol;
+    if (toEl.paused) toEl.play().catch(()=>{});
+    return;
+  }
+
+  toEl.volume = 0;
+  toEl.play().catch(()=>{});
+  const start = performance.now();
+  const fromVolStart = fromEl ? fromEl.volume : 0;
+  const toVolTarget  = bgm.vol;
+  cancelAnimationFrame(bgm.fadeReq);
+
+  function step(now){
+    const t = Math.min(1, (now - start)/dur);
+    if (fromEl) fromEl.volume = fromVolStart * (1 - t);
+    toEl.volume = toVolTarget * t;
+    if (t < 1){
+      bgm.fadeReq = requestAnimationFrame(step);
+    } else {
+      if (fromEl) fromEl.pause();
+      bgm.current = targetTrack;
+    }
+  }
+  bgm.fadeReq = requestAnimationFrame(step);
+}
+
+function applyBgmForStage(){
+  if (!bgmDay || !bgmNight) return;
+  fadeTo(gs.isNight ? 'night' : 'day');
+}
+
+// (27.1) トグルボタン
+btnBgm?.addEventListener('click', ()=>{
+  bgm.enabled = !bgm.enabled;
+  labelBgm();
+  saveBgmPref();
+  if (!bgm.enabled) {
+    stopAll();
+  } else {
+    ensureBgmInit();
+    fadeTo(gs.isNight ? 'night' : 'day', 300);
+  }
+});

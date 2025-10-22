@@ -14,6 +14,10 @@
   <link rel="preload" as="image" href="./assets/images/spirit.png" />
   <link rel="preload" as="image" href="./assets/images/bg.png" />
 
+  <!-- (2.2) BGMプリロード -->
+  <link rel="preload" as="audio" href="./assets/audio/bgm_day.mp3" />
+  <link rel="preload" as="audio" href="./assets/audio/bgm_night.mp3" />
+
   <!-- (3) スタイル -->
   <link rel="stylesheet" href="./style.css?v=ultra-v5-hp" />
   <!-- (3.1) モバイルのダブルタップ拡大を抑止 -->
@@ -61,8 +65,13 @@
       <div id="enemy-lane" class="enemy-lane"></div>
     </section>
 
-    <!-- (4-3) ログ -->
-    <section id="log" class="log" aria-live="polite"></section>
+<!-- (4-3) ログ -->
+<section id="log" class="log" aria-live="polite">
+  <!-- ログ右上のBGMボタン -->
+  <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">
+    ♪ BGM ON
+  </button>
+</section>
 
     <!-- (4-4) メニュー -->
     <section class="menu">
@@ -127,6 +136,53 @@
     });
   </script>
 
+  <!-- ここに BGM トグル用スクリプトを貼る -->
+  <script>
+    (function () {
+      const btn = document.getElementById('btn-bgm');
+      if (!btn) return;
+      const KEY = 'bgmEnabled';
+      function getEnabled() { const v = localStorage.getItem(KEY); return v == null ? true : v === '1'; }
+      function setEnabled(on) { localStorage.setItem(KEY, on ? '1' : '0'); }
+      function pauseAllRaw() {
+        document.getElementById('bgm-day')?.pause();
+        document.getElementById('bgm-night')?.pause();
+      }
+      function syncButton() {
+        const on = getEnabled();
+        btn.setAttribute('aria-pressed', String(on));
+        btn.textContent = on ? '♪ BGM ON' : '♪ BGM OFF';
+      }
+      async function applyNow() {
+        if (typeof window.ensureBgmInit === 'function') window.ensureBgmInit();
+        if (typeof window.applyBgmForStage === 'function') {
+          window.applyBgmForStage();
+        } else {
+          const on = getEnabled();
+          const isNight = !!window.GameAPI?.getStageInfo?.().isNight;
+          const day = document.getElementById('bgm-day');
+          const night = document.getElementById('bgm-night');
+          if (!day || !night) return;
+          if (on) {
+            (isNight ? day : night).pause();
+            const t = isNight ? night : day;
+            try { await t.play(); } catch {}
+          } else {
+            pauseAllRaw();
+          }
+        }
+        syncButton();
+      }
+      syncButton();
+      btn.addEventListener('click', async () => {
+        const next = !getEnabled();
+        setEnabled(next);
+        await applyNow();
+      });
+      window.addEventListener('load', () => { setTimeout(applyNow, 0); });
+    })();
+  </script>
+
   <!-- (7) Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
@@ -158,6 +214,8 @@
   document.addEventListener('gesturechange', e => e.preventDefault());
   document.addEventListener('gestureend',    e => e.preventDefault());
 })();
-</script>
+</script>  <!-- (8) BGM Audio elements -->
+  <audio id="bgm-day"   src="./assets/audio/bgm_day.mp3"   preload="auto" loop></audio>
+  <audio id="bgm-night" src="./assets/audio/bgm_night.mp3" preload="auto" loop></audio>
 </body>
 </html>
