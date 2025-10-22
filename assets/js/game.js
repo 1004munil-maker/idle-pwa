@@ -1,19 +1,20 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携 v6.0)
-   - 敵パラメータは EnemyDB 参照（速度/HP/攻撃/見た目サイズ）
-   - 近接攻撃：windup→lunge（左へ突き）→recoil（ダメージは windup+active で入る）
-   - 衝突：サイズ依存の半径 + 軽い押し込み
-   - ステージ頭バースト湧き + ペース湧き
+   Idle Lightning - game.js (EnemyDB連携)  v6.1-num-annotated
+   変更要約:
+   (A) windup/strike/recoil 中は毎フレーム e.vx=e.vy=0（ブルブル停止）
+   (B) recoil 終了時に座標スナップ & 速度ゼロ
+   (C) 全角スペース混入の除去（敵生成オブジェクト内の recoil 系）
+   (D) 失敗後の "停止" を回避するウォッチドッグ
    ========================================================= */
 
-/* ====== 衝突判定・押し込みチューニング ====== */
-const HIT_SCALE_SPIRIT = 0.42;   // 精霊 当たり半径=見た目サイズ×係数
-const HIT_SCALE_ENEMY  = 0.40;   // 敵    当たり半径=見た目サイズ×係数（EnemyDB.size 基準）
+/* ========== (1) 当たり判定・押し込みチューニング ========== */
+const HIT_SCALE_SPIRIT = 0.42;   // 精霊半径=見た目×係数
+const HIT_SCALE_ENEMY  = 0.40;   // 敵半径=EnemyDB.size×係数
 const HIT_MARGIN       = 2;      // 取りこぼし防止
 const ENGAGE_EXTRA     = 6;      // 押し込み開始距離 (r合計+これ)
 const PUSH_STRENGTH    = 0.10;   // 押し込み力
 
-/* ====== DOM ====== */
+/* ========== (2) DOM 参照 ========== */
 const laneEl   = document.getElementById('enemy-lane');
 const logEl    = document.getElementById('log');
 const goldEl   = document.getElementById('gold');
@@ -28,7 +29,7 @@ const playerHpBarEl   = document.getElementById('player-hp');
 const playerHpFillEl  = playerHpBarEl?.querySelector('.fill');
 const playerHpLabelEl = document.getElementById('playerHpLabel');
 
-/* ====== スタート/メニュー ====== */
+/* ========== (3) スタート/メニュー DOM ========== */
 const startScreenEl  = document.getElementById('start-screen');
 const btnNew         = document.getElementById('btn-new');
 const btnContinue    = document.getElementById('btn-continue');
@@ -38,7 +39,7 @@ const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
 const btnStatus = document.getElementById('btn-status');
 
-/* ====== レイアウト ====== */
+/* ========== (4) レイアウト計測 ========== */
 let laneRect;
 function measureRects(){
   if (!laneEl) return;
@@ -47,7 +48,7 @@ function measureRects(){
 window.addEventListener('resize', measureRects);
 window.addEventListener('orientationchange', () => setTimeout(measureRects, 200));
 
-/* ====== ログ ====== */
+/* ========== (5) ログ ========== */
 const MAX_LOG = 50;
 function addLog(msg, kind = 'info') {
   const div = document.createElement('div');
@@ -61,7 +62,7 @@ function logAttack(chainCount, totalDamage) {
   addLog(`連鎖×${chainCount}！ 合計 ${Math.round(totalDamage)} ダメージ`, 'gain');
 }
 
-/* ====== セーブ/ロード ====== */
+/* ========== (6) セーブ/ロード ========== */
 const SAVE_KEY = 'idleLightningSaveV6';
 function saveGame() {
   const data = {
@@ -86,7 +87,7 @@ function loadGame() {
 }
 function hasSave() { return !!localStorage.getItem(SAVE_KEY); }
 
-/* ====== ゲームステート ====== */
+/* ========== (7) ゲームステート ========== */
 const gs = {
   floor: 1,
   chapter: 1,
@@ -97,7 +98,14 @@ const gs = {
   running: false
 };
 
-// 通貨/UI
+// ウォッチドッグ（(D) 停止回避用）
+const watchdog = {
+  lastProgress: performance.now(),
+  lastFailAt: 0
+};
+function touchProgress(){ watchdog.lastProgress = performance.now(); }
+
+/* ========== (8) 通貨/UI & HP ========== */
 let gold = 0;
 let diamonds = 0;
 let dpsSmoothed = 0;
@@ -108,7 +116,6 @@ function refreshCurrencies(){
 }
 refreshCurrencies();
 
-// プレイヤーHP
 let playerHpMax = 100;
 let playerHp    = playerHpMax;
 function updatePlayerHpUI(){
@@ -118,7 +125,7 @@ function updatePlayerHpUI(){
 }
 updatePlayerHpUI();
 
-/* ====== 進行UI ====== */
+/* ========== (9) 進行UIラベル ========== */
 function updateStageLabel() {
   if (stageLabelEl) stageLabelEl.textContent = `${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight ? ' 🌙' : ''}`;
 }
@@ -129,7 +136,7 @@ function updateRemainLabel() {
 }
 updateStageLabel();
 
-/* ====== 雷 ====== */
+/* ========== (10) 雷パラメータ ========== */
 const lightning = {
   baseDmg: 8,
   cooldown: 0.70,
@@ -142,7 +149,7 @@ const lightning = {
 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 
-/* ====== EnemyDB 参照（フォールバック含む） ====== */
+/* ========== (11) EnemyDB 参照（フォールバックあり） ========== */
 const DB = (function(){
   const F = window.EnemyDB || {};
   const defs = F.defs || {
@@ -163,7 +170,7 @@ const DB = (function(){
   return { defs, weights, chapterHpMul, nightHpMul };
 })();
 
-/* ====== 敵配列/プール ====== */
+/* ========== (12) 敵プール ========== */
 const enemyPool = [];
 function getEnemyEl() {
   const el = enemyPool.pop();
@@ -189,7 +196,7 @@ function resetEnemyEl(el){
   el.setAttribute('data-hp', '');
 }
 
-/* ====== ステージ・係数 ====== */
+/* ========== (13) ステージ係数/スポーン管理 ========== */
 function stageTotalCount(chapter, stage) {
   const base = 8 + (stage - 1);
   return (stage === 10) ? Math.round(base * 2) : base;
@@ -200,7 +207,6 @@ function hpMultiplier() {
 const MAX_CONCURRENT = 40;
 const NIGHT_DIAMOND_RATE = 0.10;
 
-/* ====== スポーン ====== */
 let spawnPlan = { total: 0, spawned: 0, alive: 0 };
 let spawnTimer = 0;
 let baseSpawnDelay = 1000;
@@ -217,6 +223,7 @@ function setupStageCounters() {
   updateStageLabel();
   updateRemainLabel();
   addLog(`Stage 開始：${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight?' 🌙':''}`, 'dim');
+  touchProgress(); // (D)
 }
 
 function pickEnemyType() {
@@ -228,7 +235,7 @@ function pickEnemyType() {
 
 let laneWidthCached = 0, laneHeightCached = 0;
 let enemySeq = 1;
-const enemies = []; // 要素：{eid, el, def, x,y,vx,vy, speed, hp,maxHp, reward,dmg, t, swayAmp,swayFreq, state, st, atkCool}
+const enemies = []; // 要素：オブジェクト（下で定義）
 
 function spawnEnemy(type = pickEnemyType()) {
   if (!laneRect || laneRect.width === 0) measureRects();
@@ -273,14 +280,15 @@ function spawnEnemy(type = pickEnemyType()) {
     strikeFromX: 0, strikeFromY: 0,
     strikeToX: 0,   strikeToY: 0,
     strikeHitDone: false,
-　  // recoil（後退）補間用
-  　recoilFromX: 0, recoilFromY: 0,
-  　recoilToX: 0,   recoilToY: 0,
+    // recoil（後退）補間用  ※全角スペース排除
+    recoilFromX: 0, recoilFromY: 0,
+    recoilToX: 0,   recoilToY: 0,
   });
 
   spawnPlan.spawned++;
   spawnPlan.alive++;
   updateRemainLabel();
+  touchProgress(); // (D)
 }
 
 function trySpawn(dt) {
@@ -301,7 +309,7 @@ function trySpawn(dt) {
   }
 }
 
-/* ====== ビーム演出 ====== */
+/* ========== (14) ビーム演出 ========== */
 const beamPool = [];
 function getBeamEl(){ const el = beamPool.pop(); if(el) return el; const b=document.createElement('div'); b.className='beam'; return b; }
 function releaseBeamEl(el){ el.remove(); beamPool.push(el); }
@@ -319,7 +327,7 @@ function spawnBeam(x1, y1, x2, y2, life = 0.12) {
   setTimeout(() => { el.classList.remove('fade'); releaseBeamEl(el); }, (life * 1000) | 0);
 }
 
-/* ====== ヘルパ ====== */
+/* ========== (15) ヘルパ ========== */
 function centerScreen(el) {
   const r = el.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -329,7 +337,7 @@ function dist2(ax, ay, bx, by) {
   return dx * dx + dy * dy;
 }
 
-/* ====== EXPフォールバック ====== */
+/* ========== (16) EXP フォールバック ========== */
 const ExpAPI = {
   expFromKill(gs, type){
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
@@ -348,7 +356,7 @@ const ExpAPI = {
   }
 };
 
-/* ====== 敵削除 ====== */
+/* ========== (17) 敵削除 ========== */
 function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   const idx = enemies.findIndex(o => o.eid === eid);
   if (idx === -1) return;
@@ -356,6 +364,7 @@ function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   enemies.splice(idx, 1);
   spawnPlan.alive = Math.max(0, spawnPlan.alive - 1);
   updateRemainLabel();
+  touchProgress(); // (D)
 
   if (fade) {
     const keepEid = String(eid);
@@ -372,7 +381,7 @@ function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   }
 }
 
-/* ====== プレイヤー被ダメ ====== */
+/* ========== (18) プレイヤー被ダメ ========== */
 function damagePlayer(amount){
   playerHp = Math.max(0, playerHp - (Number.isFinite(amount) ? amount : 0));
   updatePlayerHpUI();
@@ -382,7 +391,7 @@ function damagePlayer(amount){
   }
 }
 
-/* ====== 落雷攻撃 ====== */
+/* ========== (19) 落雷攻撃（プレイヤー攻撃） ========== */
 function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
@@ -465,9 +474,10 @@ function tryAttack(dt) {
 
   logAttack(used.size, dealtTotal);
   lightning.timer = lightning.cooldown;
+  touchProgress(); // (D)
 }
 
-/* ====== ループ ====== */
+/* ========== (20) ゲームループ（敵AI含む） ========== */
 let last;
 function getSpiritCenter(){ return centerScreen(spiritEl); }
 function getEnemyCenter(e){ return centerScreen(e.el); }
@@ -504,6 +514,7 @@ function gameLoop(now = performance.now()) {
 
   const rS = spiritRadius();
 
+  // ===== 敵の更新 =====
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     e.t += dt;
@@ -512,17 +523,10 @@ function gameLoop(now = performance.now()) {
     // 攻撃クールダウン
     if (e.atkCool > 0) e.atkCool -= dt;
 
-    // 基本追尾ベクトル
+    // 目標方向
     let dx = sxLane - e.x, dy = syLane - e.y;
     const dist = Math.hypot(dx, dy) || 1;
     const nx = dx / dist, ny = dy / dist;
-
-        // 状態遷移
-
-          // 接近：通常移動（基本）
-    const desiredVx = nx * e.speed;
-    const desiredVy = ny * e.speed;
-    const steer = 0.5;
 
     const A  = e.def.atk;
     const rE = enemyRadius(e);
@@ -552,12 +556,13 @@ function gameLoop(now = performance.now()) {
       if (inMelee && e.atkCool <= 0) {
         e.state = 'windup';
         e.st = 0;
-        e.vx = e.vy = 0;
+        e.vx = e.vy = 0;               // (A) 攻撃予備動作で静止
         e.el.classList.add('pose-windup');
       }
     }
     else if (e.state === 'windup') {
-      // その場で予備動作
+      // その場で予備動作（毎フレーム静止）
+      e.vx = e.vy = 0;                 // (A)
       if (e.st >= A.windup) {
         e.strikeFromX = e.x;
         e.strikeFromY = e.y;
@@ -578,33 +583,35 @@ function gameLoop(now = performance.now()) {
       }
     }
     else if (e.state === 'strike') {
-  const t = Math.min(1, e.st / A.active);
-  e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
-  e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
+      // 毎フレーム静止
+      e.vx = e.vy = 0;                 // (A)
+      const t = Math.min(1, e.st / A.active);
+      e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
+      e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
 
-  if (!e.strikeHitDone && e.st >= A.active) {
-    e.strikeHitDone = true;
-    const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
-    addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
-    damagePlayer(hitDmg);
+      // ダメージは active 終了時に一度
+      if (!e.strikeHitDone && e.st >= A.active) {
+        e.strikeHitDone = true;
+        const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
+        addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
+        damagePlayer(hitDmg);
 
-    e.recoilFromX = e.x;
-    e.recoilFromY = e.y;
-    e.recoilToX   = e.strikeFromX;
-    e.recoilToY   = e.strikeFromY;
+        // recoil（後退）準備
+        e.recoilFromX = e.x;
+        e.recoilFromY = e.y;
+        e.recoilToX   = e.strikeFromX;
+        e.recoilToY   = e.strikeFromY;
 
-    e.state = 'recoil';
-    e.st = 0;
-
-    // ✅ rate を秒数扱いでそのまま使う
-    e.atkCool = A.rate;  
-
-    e.el.classList.remove('pose-strike');
-    e.el.classList.add('pose-recoil');
-  
-}
+        e.state = 'recoil';
+        e.st = 0;
+        e.atkCool = A.rate;            // 次の攻撃までのクール
+        e.el.classList.remove('pose-strike');
+        e.el.classList.add('pose-recoil');
+      }
     }
     else if (e.state === 'recoil') {
+      // 後退モーション中も静止
+      e.vx = e.vy = 0;                 // (A)
       // 後退モーション（A.recoil の間で線形補間）
       const t = Math.min(1, e.st / A.recoil);
       const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
@@ -612,8 +619,11 @@ function gameLoop(now = performance.now()) {
       e.x = rx;
       e.y = ry;
 
-      // 終わったら chase へ
-      if (e.st >= A.recoil) {
+      // 終わったら chase へ（座標確定＆速度ゼロ）
+      if (e.st >= A.recoil) {          // (B)
+        e.x = e.recoilToX;
+        e.y = e.recoilToY;
+        e.vx = 0; e.vy = 0;
         e.state = 'chase';
         e.st = 0;
         e.el.classList.remove('pose-recoil');
@@ -637,17 +647,31 @@ function gameLoop(now = performance.now()) {
     }
   }
 
+  // プレイヤー攻撃＆スポーン
   tryAttack(dt);
   trySpawn(dt);
 
+  // ステージクリア判定
   if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
     nextStage();
+  }
+
+  /* ===== (20.5) ウォッチドッグ: 停止回避 =====
+     条件: 走行中 & 非ポーズ & 直近に進捗がなく、敵も湧いていない */
+  const nowMs = performance.now();
+  if (gs.running && !gs.paused) {
+    const noEnemy = enemies.length === 0 && spawnPlan.alive === 0 && spawnPlan.spawned === 0;
+    if (noEnemy && (nowMs - watchdog.lastFailAt) > 800 && (nowMs - watchdog.lastProgress) > 2500) {
+      addLog('🛠 再起動ガード: ステージを再セット', 'dim');
+      startStageHead();
+      touchProgress();
+    }
   }
 
   requestAnimationFrame(gameLoop);
 }
 
-/* ====== ステージ遷移 ====== */
+/* ========== (21) ステージ遷移 ========== */
 function startStageHead() {
   gs.isNight = (gs.stage === 10);
   setupStageCounters();
@@ -692,6 +716,7 @@ function failStage() {
   gs.running = true;
   startStageHead();
   saveGame();
+  watchdog.lastFailAt = performance.now(); // (D)
 }
 
 function clearAllEnemies() {
@@ -701,7 +726,7 @@ function clearAllEnemies() {
   }
 }
 
-/* ====== Start/Continue/一時停止 ====== */
+/* ========== (22) Start/Continue/一時停止 ========== */
 function showStartScreen() {
   if (hasSave()) {
     btnContinue && (btnContinue.disabled = false);
@@ -761,7 +786,7 @@ btnRetry?.addEventListener('click', () => { if (!gs.running) return; addLog('↻
 // オートセーブ
 setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
-/* ====== GameAPI ====== */
+/* ========== (23) GameAPI（外部UI/Exp/Statusから触る） ========== */
 const listeners = { stageChange: new Set() };
 function emitStageChange(){ listeners.stageChange.forEach(fn=>{ try{ fn(getStageInfo()); }catch{} }); }
 function getStageInfo(){ return { floor:gs.floor, chapter:gs.chapter, stage:gs.stage, isNight:gs.isNight }; }
@@ -796,13 +821,13 @@ window.GameAPI = {
   updateRemainLabel,
 };
 
-// 遷移時通知
+// 遷移時通知（wrap）
 const _nextStage = nextStage;
 nextStage = function(){ _nextStage(); emitStageChange(); };
 const _failStage = failStage;
 failStage = function(){ _failStage(); emitStageChange(); };
 
-/* ====== 初期化 ====== */
+/* ========== (24) 初期化 ========== */
 function init() {
   measureRects();
   addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
