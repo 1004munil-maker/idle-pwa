@@ -391,44 +391,47 @@ body::after{
   *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
 
-/* ==== BGMボタン（右下フローティング） ==== */
-.floating-ui{
-  position: fixed;                       /* 画面右下に固定 */
-  right: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  z-index: 5000;                         /* 最前面に */
-  pointer-events: none;                  /* 中のボタン以外はクリック無効 */
+/* ====== LOG（スクロール無し・ボタンを右上）====== */
+#log{
+  position: relative;          /* 子の絶対配置の基準にする */
+  overflow-y: hidden !important; /* スクロールしない（はみ出しはカット） */
+  /* もしログがボタンと重なるのが気になるなら右に余白を確保 */
+  padding-right: 92px;         
 }
-.floating-ui .bgm-toggle{
-  pointer-events: auto;
-  display: inline-flex !important;       /* 万一 display:none 対策 */
+
+/* WebKit系のスクロールバー非表示（保険） */
+#log::-webkit-scrollbar{ display:none; }
+
+/* ====== ログ右上のBGMトグルボタン ====== */
+#log .bgm-toggle{
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;                  /* ログ文字より前面 */
+  display: inline-flex;
   align-items: center;
   gap: .4em;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-radius: 999px;
   border: 1px solid rgba(120,160,255,.35);
   background: linear-gradient(180deg, rgba(28,36,52,.92), rgba(18,24,36,.92));
   color: #dfe9ff;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: .02em;
   box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
   backdrop-filter: blur(6px);
   transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
   cursor: pointer;
 }
-.floating-ui .bgm-toggle[aria-pressed="false"]{
+#log .bgm-toggle[aria-pressed="false"]{
   opacity: .75;
   border-color: rgba(120,160,255,.25);
 }
 @media(hover:hover){
-  .floating-ui .bgm-toggle:hover{
+  #log .bgm-toggle:hover{
     transform: translateY(-1px);
     border-color: rgba(140,180,255,.55);
     box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12);
   }
-}
-@media (max-width: 520px){
-  .floating-ui{ right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
-  .floating-ui .bgm-toggle{ padding: 8px 12px; font-size: 13px; }
 }
