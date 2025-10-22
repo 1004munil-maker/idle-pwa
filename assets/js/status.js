@@ -105,10 +105,10 @@ const costK    = 1.12;
     `;
 
     rows.innerHTML =
-      mkRow('crit',  'クリティカル率', '基礎10% 〜 上限70%（+0.5%/Lv）') +
-      mkRow('spd',   '攻撃速度',      'CD -30ms/回（下限 150ms）') +
-      mkRow('range', '射程距離',      '射程 +4%/回（最大 +60%）') +
-      mkRow('gold',  'ゴールド獲得',  '獲得 +5%/回（最大 +200%）');
+      mkRow('crit',  'クリティカル率', '基礎10% 〜 上限70%（+0.1%/Lv）') +
+      mkRow('spd',   '攻撃速度',      'CD -10ms/回（下限 150ms）') +
+      mkRow('range', '射程距離',      '射程 +1%/回（最大 +60%）') +
+      mkRow('gold',  'ゴールド獲得',  '獲得 +1%/回（最大 +200%）');
 
     // クリック
     rows.querySelectorAll('.row .up').forEach(btn=>{
