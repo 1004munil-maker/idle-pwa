@@ -1,25 +1,7 @@
 /* =========================================================
-   Idle Lightning - style.css (Ultra Polish v5)
-   by Loki for Munikun
-   目的：スマホ縦18:9・PWA・高視認＆軽量リッチUI
-   ---------------------------------------------------------
-   セクション:
-   (1) ルート変数 / テーマ
-   (2) Reset & Base
-   (3) グローバル背景レイヤ（パーティクル/グラデ）
-   (4) ゲーム枠（18:9）＆下層配色
-   (5) HUD（右上チップ群・視認性UP）
-   (6) バトルフィールド（上40%）
-   (7) 精霊⚡（演出強化・負荷軽）
-   (8) 敵レーン / 敵スタイル（HPバー/状態エフェクト）
-   (9) 雷ビーム（発光ライン）
-   (10) ログ（中段）
-   (11) メニュー（下段・押し感）
-   (12) スタート画面（グラスカード）
-   (13) ユーティリティ / トースト / ツールチップ（任意）
-   (14) デバッグドット
-   (15) レスポンシブ微調整
-   (16) 低モーション対応
+   Idle Lightning - style.css (Ultra Polish v5 + sprite/bg)
+   - 上40%にダンジョン床(bg.png)
+   - 精霊は <img class="spirit">（assets/images/spirit.png）
    ========================================================= */
 
 /* (1) ---------- ルート変数 / テーマ ---------- */
@@ -32,7 +14,6 @@
 
   --bg-0: #070b11;
   --bg-1: #0d1320;
-  --bg-2: #0b111a;
   --panel-1: #0e141c;
   --panel-2: #0b1017;
   --panel-3: #0a0f16;
@@ -40,16 +21,9 @@
   --line-2: #1a2636;
 
   --txt: #e9eef6;
-  --muted: #a9b7ce;
   --gold: #ffd76a;
   --dia:  #7fe8ff;
   --good: #d8ffb2;
-
-  --accent:  #66baff;
-  --accent2: #8fd2ff;
-
-  --battle-left:  #141b28;
-  --battle-right: #1b2433;
 
   --beam-1: #fff48a;
   --beam-2: #ffd84d;
@@ -165,63 +139,85 @@ body::after{
 .chip.dps  { color: #cfe1ff; }
 .chip.chain{ color: var(--good); }
 
-/* (6) ---------- バトルフィールド（上40%） ---------- */
+/* (6) ---------- バトルフィールド（上40%：ドット床bg.png） ---------- */
 .battlefield{
   position:absolute; top: 0; left: 0; width: 100%; height: var(--battle-h);
-  background: linear-gradient(90deg, var(--battle-left), var(--battle-right));
+  /* 背景タイル */
+  background-image: url("./assets/images/bg.png");
+  background-repeat: repeat;
+  background-size: 64px 64px;          /* タイルサイズ（お好みで 48/64/80） */
+  image-rendering: pixelated;          /* ドットをくっきり表示 */
   border-bottom: 1px solid var(--line-2);
   overflow: hidden;
   z-index: 1;
   will-change: transform;
 }
+/* 奥行きグリッド（薄め） */
 .battlefield::before{
   content:"";
   position:absolute; inset:0;
   background-image:
-    linear-gradient(to right, rgba(255,255,255,.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,.025) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255,255,255,.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.02) 1px, transparent 1px);
   background-size: 26px 26px, 26px 26px;
   pointer-events:none;
   mix-blend-mode: screen;
-  opacity: .34;
+  opacity: .28;
+}
+/* 上部に淡いビネットで視線誘導 */
+.battlefield::after{
+  content:"";
+  position:absolute; inset:0;
+  background: linear-gradient(180deg, rgba(0,0,0,.25), transparent 40%);
+  pointer-events:none;
 }
 
-/* (7) ---------- 精霊⚡ & 自分HPバー ---------- */
-/* 位置合わせ用ラッパー */
+/* (7) ---------- 精霊⚡ & 自分HPバー（画像版） ---------- */
+/* 位置は wrap が持つ（左6%・中央寄せ） */
 .spirit-wrap{
-  position:absolute; left: 6%; top: 50%; transform: translateY(-50%);
+  position:absolute;
+  left: 6%;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 2;
+  pointer-events: none; /* 誤タップ防止 */
 }
-.spirit{
-  font-size: 30px; color: var(--accent2);
-  text-shadow: var(--glow-1), var(--glow-2);
-  animation: spiritFloat 2.8s ease-in-out infinite;
-  will-change: transform;
-}
-@keyframes spiritFloat{
-  0%,100%{ transform: translateY(0) }
-  50%    { transform: translateY(-3px) }
-}
-/* 微光リング */
-.spirit::after{
+/* 光輪は wrap に付ける */
+.spirit-wrap::after{
   content:"";
-  position:absolute; left: 50%; top: 50%; width: 28px; height: 28px;
+  position:absolute;
+  left: 50%; top: 50%;
+  width: 28px; height: 28px;
   transform: translate(-50%,-50%);
   border-radius: 50%;
-  box-shadow:
-    0 0 22px rgba(120,180,255,.35),
-    inset 0 0 10px rgba(120,180,255,.25);
+  box-shadow: 0 0 22px rgba(120,180,255,.35), inset 0 0 10px rgba(120,180,255,.25);
   pointer-events: none;
 }
-/* 自分HPバー（精霊上） */
+/* 精霊本体は <img class="spirit"> を想定 */
+.spirit{
+  display:block;
+  width: 32px; height: 32px;           /* 28〜36px で好み調整 */
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 10px rgba(102,186,255,.45)) drop-shadow(0 0 18px rgba(102,186,255,.30));
+  animation: spiritFloat 2.8s ease-in-out infinite;
+}
+@keyframes spiritFloat{ 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-3px) } }
+/* 自分HPバー（精霊の下に） */
 .player-hp{
-  position:absolute; left: -6px; right: -6px; top: -18px; height: 5px;
-  background: rgba(0,0,0,.5); border-radius: 4px; overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+  position: absolute;
+  left: 50%; bottom: -10px;
+  transform: translateX(-50%);
+  width: 42px; height: 4px;
+  border-radius: 3px;
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.18);
+  overflow: hidden;
 }
 .player-hp .fill{
-  width: 100%; height: 100%;
-  background: linear-gradient(90deg, #8dff9f, #4de3ff);
+  height: 100%;
+  width: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg,#78ffa8,#32e6ff);
   transition: width .15s linear;
 }
 
@@ -231,7 +227,7 @@ body::after{
   height: 100%; z-index: 1;
 }
 
-/* 敵の球体（transformで座標管理） */
+/* 敵（球） */
 .enemy{
   position: absolute;
   width: 26px; height: 26px; border-radius: 50%;
@@ -239,12 +235,9 @@ body::after{
     radial-gradient(circle at 35% 35%, rgba(255,255,255,.35), transparent 45%),
     linear-gradient(145deg,#ff3b6b,#ff1748);
   border: 1px solid rgba(255,255,255,.08);
-  box-shadow:
-    0 0 10px rgba(255,60,120,.40),
-    inset 0 0 8px rgba(255,255,255,.15);
+  box-shadow: 0 0 10px rgba(255,60,120,.40), inset 0 0 8px rgba(255,255,255,.15);
   will-change: transform, opacity, filter;
 }
-
 /* 敵アイコン（🦂/🦅/🦏） */
 .enemy .icon{
   position:absolute; inset:0;
@@ -252,8 +245,7 @@ body::after{
   font-size: 18px; pointer-events:none;
   text-shadow: 0 0 6px rgba(0,0,0,.35);
 }
-
-/* HPバー（上部3px） */
+/* HPバー */
 .enemy::after{
   content:"";
   position:absolute; left:0; right:0; top:-6px; height:3px; border-radius: 2px;
@@ -265,20 +257,14 @@ body::after{
   width: 100%;
   transition: width .12s linear;
 }
-
-/* 命中フラッシュ（transformを変えない） */
+/* 被弾/消滅 */
 .enemy.hit{
   filter: brightness(1.15) saturate(1.1);
-  box-shadow:
-    0 0 12px rgba(255,240,120,.75),
-    inset 0 0 9px rgba(255,255,255,.25);
+  box-shadow: 0 0 12px rgba(255,240,120,.75), inset 0 0 9px rgba(255,255,255,.25);
 }
-
-/* 消滅：座標が飛ばないよう opacity のみ */
 .enemy.dead{ animation: enemyFade .22s ease-out forwards; }
 @keyframes enemyFade{ to { opacity: 0; } }
-
-/* HPデバッグラベル（必要なら残す） */
+/* HPデバッグ（必要なら） */
 .enemy::before{
   content: attr(data-hp);
   position: absolute; top: -18px; left: 50%; transform: translateX(-50%);

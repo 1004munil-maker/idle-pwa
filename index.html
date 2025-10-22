@@ -10,6 +10,10 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#0f1115" />
 
+  <!-- (2.1) 画像プリロード（体感改善） -->
+  <link rel="preload" as="image" href="./assets/images/spirit.png" />
+  <link rel="preload" as="image" href="./assets/images/bg.png" />
+
   <!-- (3) スタイル -->
   <link rel="stylesheet" href="./style.css?v=ultra-v5-hp" />
 </head>
@@ -30,9 +34,10 @@
 
     <!-- (4-2) バトルエリア（上40%） -->
     <section class="battlefield">
-      <!-- ⚡ 精霊とHPバー（位置合わせしやすいようにラップ） -->
+      <!-- ⚡ 精霊（ドット絵）＋ HPバー -->
       <div class="spirit-wrap">
-        <div class="spirit" aria-hidden="false">⚡</div>
+        <!-- ここを画像に変更 -->
+        <img src="./assets/images/spirit.png" alt="精霊" class="spirit" width="32" height="32" />
         <div id="player-hp" class="player-hp"><div class="fill"></div></div>
       </div>
 

@@ -251,26 +251,27 @@ function spawnBeam(x1, y1, x2, y2, life = 0.12) {
   setTimeout(() => { el.classList.remove('fade'); releaseBeamEl(el); }, (life * 1000) | 0);
 }
 
-/* (12) ---------- 攻撃（連鎖） ---------- */
-function centerScreen(el) {
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width/2, y: r.top + r.height/2 };
-}
-function dist2(ax, ay, bx, by){ const dx=ax-bx, dy=ay-by; return dx*dx + dy*dy; }
-
+// (12) ---------- 攻撃（連鎖） ----------
+// 置き換え版：敵の「画面中心」から距離と描画を行う
 function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
 
+  // 精霊の画面中心 → lane座標へ変換
   const sc = centerScreen(spiritEl);
   const sx = sc.x - laneRect.left;
   const sy = sc.y - laneRect.top;
 
   const r2 = lightning.range * lightning.range;
+
+  // 射程内候補：各敵の「画面中心」を毎回取得し、そこから lane座標に変換して使う
   const cand = [];
   for (const e of enemies) {
-    const d2 = dist2(sx, sy, e.x, e.y);
-    if (d2 <= r2) cand.push({ e, d2 });
+    const ec = getEnemyCenter(e);             // 画面座標
+    const ex = ec.x - laneRect.left;          // lane座標へ
+    const ey = ec.y - laneRect.top;
+    const d2 = dist2(sx, sy, ex, ey);
+    if (d2 <= r2) cand.push({ e, d2, ex, ey });
   }
   if (!cand.length) return;
 
@@ -281,29 +282,32 @@ function tryAttack(dt) {
   let dmg = lightning.baseDmg;
   let dealtTotal = 0;
 
-  const first = cand[0].e;
-  spawnBeam(sx, sy, first.x, first.y);
-  used.add(first);
+  // 1本目：⚡ → 最も近い敵（座標は cand の ex/ey を使う）
+  const first = cand[0];
+  spawnBeam(sx, sy, first.ex, first.ey);
+  used.add(first.e);
 
-  let prev = first;
+  let prevX = first.ex, prevY = first.ey;
+
   for (let i = 0; i < maxHits; i++) {
-    const target = (i === 0) ? first : cand.find(o => !used.has(o.e))?.e;
-    if (!target) break;
+    const pick = (i === 0) ? first : cand.find(o => !used.has(o.e));
+    if (!pick) break;
 
-    if (i > 0) spawnBeam(prev.x, prev.y, target.x, target.y);
+    if (i > 0) spawnBeam(prevX, prevY, pick.ex, pick.ey);
 
-    target.hp -= dmg;
+    // ダメージ
+    pick.e.hp -= dmg;
     dealtTotal += Math.max(0, dmg);
 
-    const ratio = Math.max(0, target.hp / target.maxHp);
-    target.el.querySelector('.hp').style.width = (ratio * 100).toFixed(1) + '%';
-    target.el.setAttribute('data-hp', Math.max(0, Math.round(target.hp)));
+    const ratio = Math.max(0, pick.e.hp / pick.e.maxHp);
+    pick.e.el.querySelector('.hp').style.width = (ratio * 100).toFixed(1) + '%';
+    pick.e.el.setAttribute('data-hp', Math.max(0, Math.round(pick.e.hp)));
 
-    target.el.classList.add('hit');
-    setTimeout(()=>target.el.classList.remove('hit'), 80);
+    pick.e.el.classList.add('hit');
+    setTimeout(()=>pick.e.el.classList.remove('hit'), 80);
 
-    used.add(target);
-    prev = target;
+    used.add(pick.e);
+    prevX = pick.ex; prevY = pick.ey;
     dmg *= lightning.falloff;
   }
 
@@ -327,42 +331,50 @@ function tryAttack(dt) {
   lightning.timer = lightning.cooldown;
 }
 
-/* (13) ---------- ループ（移動/衝突/突破=被ダメ） ---------- */
+/* (13) ---------- ループ（移動/衝突/突破=失敗 or 低ダメ） ---------- */
 let last = performance.now();
 
 function getSpiritCenter(){ return centerScreen(spiritEl); }
 function getEnemyCenter(e){ return centerScreen(e.el); }
 
-function damagePlayer(amount){
-  playerHp = Math.max(0, playerHp - amount);
-  updatePlayerHpUI();
-  if (playerHp <= 0) {
-    addLog('💥 HPが0になった…章の初めからリトライ！', 'alert');
-    failStage();
-  }
-}
-
 function gameLoop(now = performance.now()) {
+  // フレーム時間（ワープ防止でクランプ）
   let dt = (now - last) / 1000; last = now;
-  dt = Math.min(dt, 0.033);
+  dt = Math.min(dt, 0.033); // ≒30FPS上限
 
-  if (!gs.running || gs.paused) { requestAnimationFrame(gameLoop); return; }
+  // 一時停止/タイトル中はロジック停止
+  if (!gs.running || gs.paused) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
 
-  if (!laneRect || laneRect.width === 0) measureRects();
+  // ★ レイアウト微揺れ対策：rectを定期リフレッシュ
+  if (!laneRect) {
+    measureRects();
+  } else {
+    const r = laneEl.getBoundingClientRect();
+    // 高さ or オフセットに1px以上の変化があれば更新
+    if (Math.abs(r.top - laneRect.top) > 1 ||
+        Math.abs(r.height - laneRect.height) > 1 ||
+        Math.abs(r.left - laneRect.left) > 1) {
+      laneRect = r;
+    }
+  }
 
-  const sc = getSpiritCenter();
+  const sc = getSpiritCenter(); // 精霊の画面中心（衝突判定に使う）
 
+  // --- 敵更新 ---
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     e.t += dt;
 
-    // 精霊の lane 座標（クランプ）
+    // 精霊の lane 座標（範囲にクランプ）
     let sxLane = sc.x - laneRect.left;
     let syLane = sc.y - laneRect.top;
     sxLane = Math.max(0, Math.min(laneRect.width,  sxLane));
     syLane = Math.max(0, Math.min(laneRect.height, syLane));
 
-    // ステアリング
+    // ステアリング（目標速度へ補間）
     let dx = sxLane - e.x, dy = syLane - e.y;
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
@@ -374,51 +386,62 @@ function gameLoop(now = performance.now()) {
     e.vx += (desiredVx - e.vx) * steer;
     e.vy += (desiredVy - e.vy) * steer;
 
-    // 速度クランプ
+    // 速度クランプ（暴走防止）
     const vmax = e.speed * 1.2;
     const vlen = Math.hypot(e.vx, e.vy) || 1;
-    if (vlen > vmax) { const s = vmax / vlen; e.vx *= s; e.vy *= s; }
+    if (vlen > vmax) {
+      const s = vmax / vlen;
+      e.vx *= s; e.vy *= s;
+    }
 
     // サイン揺れ
     const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
 
-    // 位置更新
+    // 位置更新（lane座標）
     e.x += e.vx * dt;
     e.y += (e.vy + sway * 0.8) * dt;
 
-    // DOM反映
+    // DOM反映（transformのみ操作）
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-    // 衝突（被ダメ）→ 敵は消滅
-    const ec = getEnemyCenter(e);
+    // ---- 衝突判定（画面座標の円）----
+    const ec = getEnemyCenter(e); // 画面座標中心
     const dist = Math.hypot(sc.x - ec.x, sc.y - ec.y);
     if (dist <= (R_SPIRIT + R_ENEMY)) {
-      addLog(`⚠️ 被弾：${e.type}（-${e.dmg} HP）`, 'alert');
-      damagePlayer(e.dmg);
+      const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+      addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
+      damagePlayer(hitDmg);            // 外部で定義済み（HP更新＆0でfailStage）
+      // 敵は消す
       releaseEnemyEl(e.el);
       enemies.splice(i, 1);
       spawnPlan.alive--;
       continue;
     }
 
-    // 画面外（突破）→ 少量被ダメ
-    const br = laneRect;
-    const marginX = 120, marginY = 160;
-    if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
-        ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-      const escDmg = Math.ceil(e.dmg * 0.5);
-      addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
-      damagePlayer(escDmg);
-      releaseEnemyEl(e.el);
-      enemies.splice(i, 1);
-      spawnPlan.alive--;
-      continue;
+    // ---- 画面外（突破）判定：画面座標 + 余白で緩めに ----
+    {
+      const br = laneRect;
+      const marginX = 120, marginY = 160; // 余白
+      if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
+          ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+        const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
+        addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
+        damagePlayer(escDmg);
+        releaseEnemyEl(e.el);
+        enemies.splice(i, 1);
+        spawnPlan.alive--;
+        continue;
+      }
     }
   }
 
-  // 攻撃・スポーン・クリア判定
+  // --- 攻撃 ---
   tryAttack(dt);
+
+  // --- スポーン ---
   trySpawn(dt);
+
+  // --- クリア判定：出し切って盤面が空なら次へ ---
   if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
     nextStage();
   }
