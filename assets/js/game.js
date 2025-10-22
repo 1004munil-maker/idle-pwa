@@ -224,7 +224,7 @@ let spawnPlan = { total: 0, spawned: 0, alive: 0 };
 
 /* 10) ---------- スポーン制御（バースト湧き） ---------- */
 let spawnTimer = 0;
-let baseSpawnDelay = 700;      // 標準間隔（ms）
+let baseSpawnDelay = 1000;      // 標準間隔（ms）
 let burstLeft = 0;
 function setupStageCounters() {
   spawnPlan.total   = stageTotalCount(gs.chapter, gs.stage);
