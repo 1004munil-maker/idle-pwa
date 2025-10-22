@@ -1,10 +1,8 @@
 /* =========================================================
-   Idle Lightning - style.css (Ultra Polish v5 + sprite/bg)
-   - 上40%にダンジョン床(bg.png)
-   - 精霊は <img class="spirit">（assets/images/spirit.png）
+   Idle Lightning - style.css (Ultra Polish v6 clean)
    ========================================================= */
 
-/* (1) ---------- ルート変数 / テーマ ---------- */
+/* (1) Root */
 :root{
   --battle-h: 40%;
   --log-h: 36%;
@@ -25,26 +23,14 @@
   --dia:  #7fe8ff;
   --good: #d8ffb2;
 
-  --beam-1: #fff48a;
-  --beam-2: #ffd84d;
-  --beam-3: #ffb300;
-
   --glass: rgba(10,14,20,.55);
   --glass-bd: rgba(255,255,255,.08);
   --blur: 8px;
 
-  --glow-1: 0 0 16px rgba(102,186,255,.45);
-  --glow-2: 0 0 28px rgba(102,186,255,.30);
-
-  --safe-t: env(safe-area-inset-top, 0px);
-  --safe-r: env(safe-area-inset-right, 0px);
-  --safe-b: env(safe-area-inset-bottom, 0px);
-  --safe-l: env(safe-area-inset-left, 0px);
-
   color-scheme: dark;
 }
 
-/* (2) ---------- Reset & Base ---------- */
+/* (2) Reset */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
 html { font-size: 16px; }
@@ -57,15 +43,9 @@ body{
   overflow: hidden;
 }
 
-/* (3) ---------- グローバル背景レイヤ ---------- */
+/* (3) Global FX */
 body::before,
-body::after{
-  content:"";
-  position: fixed;
-  inset: -10%;
-  z-index: -2;
-  pointer-events: none;
-}
+body::after{ content:""; position: fixed; inset: -10%; z-index: -2; pointer-events: none; }
 body::before{
   background:
     radial-gradient(800px 500px at 75% -10%, rgba(120,170,255,.20), transparent 60%),
@@ -81,7 +61,7 @@ body::after{
   opacity: .35;
 }
 
-/* (4) ---------- ゲーム枠（18:9）＆下層配色 ---------- */
+/* (4) Game container */
 .game-container{
   position: relative;
   width: 100%;
@@ -90,12 +70,10 @@ body::after{
   border-radius: 16px;
   background: var(--panel-2);
   border: 1px solid rgba(255,255,255,.05);
-  box-shadow:
-    0 14px 36px rgba(0,0,0,.48),
-    inset 0 0 0 1px rgba(255,255,255,.035);
+  box-shadow: 0 14px 36px rgba(0,0,0,.48), inset 0 0 0 1px rgba(255,255,255,.035);
   overflow: hidden;
   isolation: isolate;
-  padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 .game-container::after{
   content:"";
@@ -105,275 +83,146 @@ body::after{
   z-index: 0;
 }
 
-/* (5) ---------- HUD（右上チップ群） ---------- */
-.hud{
-  position: absolute;
-  top: calc(var(--hud-m) + var(--safe-t));
-  right: calc(var(--hud-m) + var(--safe-r));
-  z-index: 10;
-}
-.hud-row{
-  display: flex; flex-wrap: wrap; gap: var(--hud-gap);
-  justify-content: flex-end; align-items: center;
-  max-width: 92%;
-}
+/* (5) HUD */
+.hud{ position: absolute; top: calc(var(--hud-m) + env(safe-area-inset-top)); right: calc(var(--hud-m) + env(safe-area-inset-right)); z-index: 10; }
+.hud-row{ display: flex; flex-wrap: wrap; gap: var(--hud-gap); justify-content: flex-end; align-items: center; max-width: 92%; }
 .chip{
   display: inline-flex; align-items: baseline; gap: 8px;
-  padding: 7px 12px;
-  min-width: 86px;
-  border-radius: 999px;
-  background: var(--glass);
-  border: 1px solid var(--glass-bd);
-  backdrop-filter: blur(var(--blur));
-  white-space: nowrap;
-  color: #fff;
-  font-size: clamp(12px, 2.3vw, 14px);
-  line-height: 1.1;
-  box-shadow:
-    0 6px 16px rgba(0,0,0,.25),
-    inset 0 0 0 1px rgba(255,255,255,.05);
+  padding: 7px 12px; min-width: 86px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-bd); backdrop-filter: blur(var(--blur));
+  white-space: nowrap; color: #fff; font-size: clamp(12px, 2.3vw, 14px); line-height: 1.1;
+  box-shadow: 0 6px 16px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.05);
 }
 .chip .label{ opacity:.75; }
-.chip.gold { color: var(--gold); }
-.chip.dia  { color: var(--dia); }
-.chip.dps  { color: #cfe1ff; }
-.chip.chain{ color: var(--good); }
+.chip.gold { color: var(--gold); } .chip.dia{ color: var(--dia); } .chip.chain{ color: var(--good); }
+.chip.dps{ display:none !important; } /* DPS非表示 */
 
-/* (6) ---------- バトルフィールド（上40%：ドット床bg.png） ---------- */
+.expbar-wrap{ width:120px;height:6px;background:#233040;border-radius:4px;overflow:hidden;border:1px solid #3a4a63 }
+.expbar-fill{ height:100%;width:0%;background:linear-gradient(90deg,#78ffa8,#32e6ff) }
+.expbar-label{ opacity:.8 }
+
+/* (6) Battlefield */
 .battlefield{
-  position:absolute; top: 0; left: 0; width: 100%; height: var(--battle-h);
-  /* 背景タイル */
-  background-image: url("./assets/images/bg.png");
-  background-repeat: repeat;
-  background-size: 64px 64px;          /* タイルサイズ（お好みで 48/64/80） */
-  image-rendering: pixelated;          /* ドットをくっきり表示 */
-  border-bottom: 1px solid var(--line-2);
-  overflow: hidden;
-  z-index: 1;
-  will-change: transform;
+  position:absolute; top:0; left:0; width:100%; height: var(--battle-h);
+  background-image: url("./assets/images/bg.png"); background-repeat: repeat; background-size: 64px 64px; image-rendering: pixelated;
+  border-bottom: 1px solid var(--line-2); overflow: hidden; z-index: 1; will-change: transform;
 }
-/* 奥行きグリッド（薄め） */
 .battlefield::before{
-  content:"";
-  position:absolute; inset:0;
+  content:""; position:absolute; inset:0;
   background-image:
     linear-gradient(to right, rgba(255,255,255,.03) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255,255,255,.02) 1px, transparent 1px);
   background-size: 26px 26px, 26px 26px;
-  pointer-events:none;
-  mix-blend-mode: screen;
-  opacity: .28;
+  pointer-events:none; mix-blend-mode: screen; opacity: .28;
 }
-/* 上部に淡いビネットで視線誘導 */
-.battlefield::after{
-  content:"";
-  position:absolute; inset:0;
-  background: linear-gradient(180deg, rgba(0,0,0,.25), transparent 40%);
-  pointer-events:none;
-}
+.battlefield::after{ content:""; position:absolute; inset:0; background: linear-gradient(180deg, rgba(0,0,0,.25), transparent 40%); pointer-events:none; }
 
-/* (7) ---------- 精霊⚡ & 自分HPバー（画像版） ---------- */
-/* 位置は wrap が持つ（左6%・中央寄せ） */
-.spirit-wrap{
-  position:absolute;
-  left: 6%;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 2;
-  pointer-events: none; /* 誤タップ防止 */
+/* Stage CLEAR overlay */
+.stage-clear{
+  position:absolute; left:50%; top:50%; transform: translate(-50%,-50%) scale(.9);
+  font-weight: 900; font-size: 40px; letter-spacing: .08em; color: #e7ffb7;
+  padding: 10px 18px; border-radius: 12px;
+  background: linear-gradient(180deg, rgba(30,40,20,.85), rgba(20,28,14,.85));
+  border: 1px solid rgba(200,240,140,.35);
+  box-shadow: 0 16px 36px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.05);
+  z-index: 5; opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease;
 }
-/* 光輪は wrap に付ける */
-.spirit-wrap::after{
-  content:"";
-  position:absolute;
-  left: 50%; top: 50%;
-  width: 28px; height: 28px;
-  transform: translate(-50%,-50%);
-  border-radius: 50%;
-  box-shadow: 0 0 22px rgba(120,180,255,.35), inset 0 0 10px rgba(120,180,255,.25);
-  pointer-events: none;
-}
-/* 精霊本体は <img class="spirit"> を想定 */
-.spirit{
-  display:block;
-  width: 32px; height: 32px;           /* 28〜36px で好み調整 */
-  image-rendering: pixelated;
+.stage-clear[aria-hidden="false"]{ opacity: 1; transform: translate(-50%,-50%) scale(1); }
+
+/* (7) Spirit & HP */
+.spirit-wrap{ position:absolute; left:6%; top:50%; transform: translateY(-50%); z-index:2; pointer-events:none; }
+.spirit-wrap::after{ content:""; position:absolute; left:50%; top:50%; width:28px; height:28px; transform: translate(-50%,-50%); border-radius:50%;
+  box-shadow: 0 0 22px rgba(120,180,255,.35), inset 0 0 10px rgba(120,180,255,.25); pointer-events:none; }
+.spirit{ display:block; width:32px; height:32px; image-rendering: pixelated;
   filter: drop-shadow(0 0 10px rgba(102,186,255,.45)) drop-shadow(0 0 18px rgba(102,186,255,.30));
-  animation: spiritFloat 2.8s ease-in-out infinite;
-}
+  animation: spiritFloat 2.8s ease-in-out infinite; }
 @keyframes spiritFloat{ 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-3px) } }
-/* 自分HPバー（精霊の下に） */
-.player-hp{
-  position: absolute;
-  left: 50%; bottom: -10px;
-  transform: translateX(-50%);
-  width: 42px; height: 4px;
-  border-radius: 3px;
-  background: rgba(255,255,255,.12);
-  border: 1px solid rgba(255,255,255,.18);
-  overflow: hidden;
-}
-.player-hp .fill{
-  height: 100%;
-  width: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg,#78ffa8,#32e6ff);
-  transition: width .15s linear;
-}
+.player-hp{ position:absolute; left:50%; bottom:-10px; transform: translateX(-50%); width:42px; height:4px; border-radius:3px;
+  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); overflow:hidden; }
+.player-hp .fill{ height:100%; width:100%; border-radius:3px; background: linear-gradient(90deg,#78ffa8,#32e6ff); transition: width .15s linear; }
 
-/* (8) ---------- 敵レーン / 敵 ---------- */
-.enemy-lane{
-  position:absolute; top: 0; bottom: 0; left: 18%; right: 2%;
-  height: 100%; z-index: 1;
-}
-
-
-/* 敵（球） */
-.enemy{
-  position: absolute;
-  width: 26px; height: 26px; border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 35%, rgba(255,255,255,.35), transparent 45%),
-    linear-gradient(145deg,#ff3b6b,#ff1748);
-  border: 1px solid rgba(255,255,255,.08);
-  box-shadow: 0 0 10px rgba(255,60,120,.40), inset 0 0 8px rgba(255,255,255,.15);
-  will-change: transform, opacity, filter;
-}
-/* 敵アイコン（🦂/🦅/🦏） */
-.enemy .icon{
-  position:absolute; inset:0;
-  display:flex; align-items:center; justify-content:center;
-  font-size: 18px; pointer-events:none;
-  text-shadow: 0 0 6px rgba(0,0,0,.35);
-}
-/* HPバー */
-.enemy::after{
-  content:"";
-  position:absolute; left:0; right:0; top:-6px; height:3px; border-radius: 2px;
-  background: rgba(0,0,0,.55);
-}
-.enemy .hp{
-  position:absolute; left:0; top:-6px; height:3px; border-radius: 2px;
-  background: linear-gradient(90deg,#78ffa8,#32e6ff);
-  width: 100%;
-  transition: width .12s linear;
-}
-/* 被弾/消滅 */
-.enemy.hit{
-  filter: brightness(1.15) saturate(1.1);
-  box-shadow: 0 0 12px rgba(255,240,120,.75), inset 0 0 9px rgba(255,255,255,.25);
-}
+/* (8) Enemy lane & enemies */
+.enemy-lane{ position:absolute; top:0; bottom:0; left:18%; right:2%; height:100%; z-index:1; }
+.enemy{ position:absolute; width:26px; height:26px; border-radius:50%;
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,.35), transparent 45%), linear-gradient(145deg,#ff3b6b,#ff1748);
+  border: 1px solid rgba(255,255,255,.08); box-shadow: 0 0 10px rgba(255,60,120,.40), inset 0 0 8px rgba(255,255,255,.15);
+  will-change: transform, opacity, filter; }
+.enemy .icon{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:18px; pointer-events:none; text-shadow: 0 0 6px rgba(0,0,0,.35); }
+.enemy::after{ content:""; position:absolute; left:0; right:0; top:-6px; height:3px; border-radius:2px; background: rgba(0,0,0,.55); }
+.enemy .hp{ position:absolute; left:0; top:-6px; height:3px; border-radius:2px; background: linear-gradient(90deg,#78ffa8,#32e6ff); width:100%; transition: width .12s linear; }
+.enemy.hit{ filter: brightness(1.15) saturate(1.1); box-shadow: 0 0 12px rgba(255,240,120,.75), inset 0 0 9px rgba(255,255,255,.25); }
 .enemy.dead{ animation: enemyFade .22s ease-out forwards; }
 @keyframes enemyFade{ to { opacity: 0; } }
-/* HPデバッグ（必要なら） */
-.enemy::before{
-  content: attr(data-hp);
-  position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
-  font-size: 10px; color: #fff; opacity: .85; pointer-events: none;
-}
+.enemy::before{ content: attr(data-hp); position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #fff; opacity: .85; pointer-events: none; }
 
-/* (9) ---------- 雷ビーム ---------- */
-.beam{
-  position:absolute; left:0; top:0; height:3px;
-  background: linear-gradient(90deg,var(--beam-1) 0%, var(--beam-2) 45%, var(--beam-3) 100%);
-  border-radius: 2px;
-  box-shadow: 0 0 8px rgba(255,220,100,.9), 0 0 18px rgba(255,200,60,.65);
-  transform-origin: left center;
-  z-index: 3;
-  opacity: .98;
-  will-change: transform, width, opacity, filter;
-}
+/* (9) Beam */
+.beam{ position:absolute; left:0; top:0; height:3px;
+  background: linear-gradient(90deg,#fff48a 0%, #ffd84d 45%, #ffb300 100%);
+  border-radius:2px; box-shadow: 0 0 8px rgba(255,220,100,.9), 0 0 18px rgba(255,200,60,.65);
+  transform-origin: left center; z-index:3; opacity:.98; will-change: transform, width, opacity, filter; }
 .beam.fade{ transition: opacity .12s ease, filter .12s ease; opacity: 0; filter: blur(1px); }
 
-/* (10) ---------- ログ（中段） ---------- */
+/* (10) Log */
 .log{
   position:absolute; top: var(--battle-h); left:0; width:100%; height: var(--log-h);
-  background: var(--panel-3);
-  border-top: 1px solid var(--line-2);
-  border-bottom: 1px solid var(--line-1);
-  color: #c8ffd4; font-size: 12px;
-  padding: 8px 10px; overflow-y: auto; z-index: 2;
-  scrollbar-gutter: stable both-edges;
-  overscroll-behavior: contain; word-break: break-word;
+  background: var(--panel-3); border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-1);
+  color: #c8ffd4; font-size: 12px; padding: 8px 10px; overflow-y: auto; z-index: 2;
+  scrollbar-gutter: stable both-edges; overscroll-behavior: contain; word-break: break-word;
 }
 .log-entry{ margin: 2px 0; }
 .log-entry.dim   { color: #a4c0a9; }
 .log-entry.alert { color: #ff9393; }
 .log-entry.gain  { color: #e9ff93; }
-.log::-webkit-scrollbar{ width: 6px; }
-.log::-webkit-scrollbar-thumb{ background: #2f3740; border-radius: 6px; }
-.log::-webkit-scrollbar-track{ background: #0b0d11; }
+.log::-webkit-scrollbar{ width: 6px; } .log::-webkit-scrollbar-thumb{ background: #2f3740; border-radius: 6px; } .log::-webkit-scrollbar-track{ background: #0b0d11; }
 
-/* (11) ---------- メニュー（下段） ---------- */
+/* (10.1) Log — no scroll & BGM button in top-right */
+#log{ position: relative; overflow-y: hidden !important; padding-right: 92px; }
+#log::-webkit-scrollbar{ display:none; }
+#log .bgm-toggle{
+  position: absolute; top: 8px; right: 8px; z-index: 5;
+  display:inline-flex; align-items:center; gap:.4em; padding:8px 12px; border-radius: 999px;
+  border: 1px solid rgba(120,160,255,.35); background: linear-gradient(180deg, rgba(28,36,52,.92), rgba(18,24,36,.92));
+  color: #dfe9ff; font-weight: 600; font-size: 13px; letter-spacing: .02em;
+  box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
+  backdrop-filter: blur(6px); transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
+  cursor: pointer;
+}
+#log .bgm-toggle[aria-pressed="false"]{ opacity: .75; border-color: rgba(120,160,255,.25); }
+@media(hover:hover){
+  #log .bgm-toggle:hover{ transform: translateY(-1px); border-color: rgba(140,180,255,.55); box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12); }
+}
+
+/* (11) Menu */
 .menu{
   position:absolute; bottom:0; left:0; width:100%; height: var(--menu-h);
-  background: var(--panel-1);
-  border-top: 1px solid var(--line-1);
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
-  padding: 12px; z-index: 2;
+  background: var(--panel-1); border-top: 1px solid var(--line-1);
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 12px; z-index: 2;
 }
 .menu button{
   min-height: 44px; font-size: 16px; color: #e9eef5;
   background: linear-gradient(180deg,#2c333d,#232830);
   border: 1px solid #3a414c; border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.03);
-  cursor: pointer;
-  transition: transform .05s ease, filter .15s ease, background .2s ease, box-shadow .2s ease;
+  cursor: pointer; transition: transform .05s ease, filter .15s ease, background .2s ease, box-shadow .2s ease;
 }
 .menu button:hover{ filter: brightness(1.06); box-shadow: 0 6px 14px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.05); }
 .menu button:active{ transform: translateY(1px); }
-.menu .btn-power{  border-color:#4c3a3a; }
-.menu .btn-rate{   border-color:#384c3a; }
-.menu .btn-range{  border-color:#3a3f4c; }
 
-/* (12) ---------- スタート画面（グラスカード） ---------- */
-#start-screen{
-  position: fixed; inset: 0;
-  background: rgba(10,12,16,.78);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 999;
-}
+/* (12) Start screen */
+#start-screen{ position: fixed; inset: 0; background: rgba(10,12,16,.78); display: flex; align-items: center; justify-content: center; z-index: 999; }
 #start-screen[aria-hidden="true"]{ display: none; }
-.start-card{
-  width: min(92vw, 420px);
-  padding: 22px 18px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #151a24 0%, #0e1218 100%);
-  color: #e7ecff; text-align: center;
-  box-shadow: 0 14px 44px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06);
-}
+.start-card{ width: min(92vw, 420px); padding: 22px 18px; border-radius: 16px; background: linear-gradient(180deg, #151a24 0%, #0e1218 100%);
+  color: #e7ecff; text-align: center; box-shadow: 0 14px 44px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); }
 .start-card .title{ margin: 6px 0 2px; font-size: 22px; letter-spacing: .02em; }
 .start-card .subtitle{ margin: 0 0 16px; font-size: 13px; opacity: .85; }
 .start-card .btns{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin: 12px 0 6px; }
-.btn{
-  appearance: none; border: 0; border-radius: 12px;
-  padding: 12px 14px; font-size: 16px; line-height: 1; cursor: pointer;
-}
-.btn.primary{
-  background: linear-gradient(180deg, #63caff 0%, #3ea6ff 100%);
-  color: #0b1220; font-weight: 800;
-  box-shadow: 0 8px 18px rgba(56,148,255,.35);
-}
-.btn.ghost{
-  background: rgba(255,255,255,.08);
-  color:#e7ecff;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
-}
+.btn{ appearance: none; border: 0; border-radius: 12px; padding: 12px 14px; font-size: 16px; line-height: 1; cursor: pointer; }
+.btn.primary{ background: linear-gradient(180deg, #63caff 0%, #3ea6ff 100%); color: #0b1220; font-weight: 800; box-shadow: 0 8px 18px rgba(56,148,255,.35); }
+.btn.ghost{ background: rgba(255,255,255,.08); color:#e7ecff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
 .btn:disabled{ opacity: .45; cursor: not-allowed; }
 .hint{ margin: 10px 0 0; font-size: 12px; color: #b7c0d8; opacity: .9; }
 
-/* (13) ---------- ユーティリティ ---------- */
-.badge{ display:inline-block; padding: 2px 6px; border-radius: 999px; font-size: 11px; letter-spacing: .2px;
-  border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); }
-.badge.gold{ color: var(--gold); } .badge.dia{ color: var(--dia); } .badge.buff{ color: var(--good); }
-
-/* (14) ---------- デバッグドット ---------- */
-.dbg-dot{ position: fixed; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
-  pointer-events: none; z-index: 9999; }
-.dbg-spirit{ background:#3affff; box-shadow:0 0 8px rgba(58,255,255,.9); }
-.dbg-enemy{  background:#ff7a7a; box-shadow:0 0 8px rgba(255,122,122,.9); }
-
-/* (15) ---------- レスポンシブ微調整 ---------- */
+/* (13) Small tweaks */
 @media (max-width: 380px){
   .hud-row{ gap: 6px; }
   .chip{ padding: 5px 9px; min-width: 74px; font-size: 12px; }
@@ -386,52 +235,7 @@ body::after{
   .menu button{ font-size: 14px; min-height: 38px; }
 }
 
-/* (16) ---------- 低モーション対応 ---------- */
+/* (14) Motion reduce */
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition: none !important; }
-}
-
-/* ====== LOG（スクロール無し・ボタンを右上）====== */
-#log{
-  position: relative;          /* 子の絶対配置の基準にする */
-  overflow-y: hidden !important; /* スクロールしない（はみ出しはカット） */
-  /* もしログがボタンと重なるのが気になるなら右に余白を確保 */
-  padding-right: 92px;         
-}
-
-/* WebKit系のスクロールバー非表示（保険） */
-#log::-webkit-scrollbar{ display:none; }
-
-/* ====== ログ右上のBGMトグルボタン ====== */
-#log .bgm-toggle{
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 5;                  /* ログ文字より前面 */
-  display: inline-flex;
-  align-items: center;
-  gap: .4em;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(120,160,255,.35);
-  background: linear-gradient(180deg, rgba(28,36,52,.92), rgba(18,24,36,.92));
-  color: #dfe9ff;
-  font-weight: 600;
-  font-size: 13px;
-  letter-spacing: .02em;
-  box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
-  backdrop-filter: blur(6px);
-  transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
-  cursor: pointer;
-}
-#log .bgm-toggle[aria-pressed="false"]{
-  opacity: .75;
-  border-color: rgba(120,160,255,.25);
-}
-@media(hover:hover){
-  #log .bgm-toggle:hover{
-    transform: translateY(-1px);
-    border-color: rgba(140,180,255,.55);
-    box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12);
-  }
 }

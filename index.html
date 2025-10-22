@@ -1,124 +1,71 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <!-- (1) 基本メタ -->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>雷精霊を育てよ！ | Idle Lightning</title>
 
-  <!-- (2) PWA -->
+  <!-- PWA -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#0f1115" />
 
-  <!-- (2.1) 画像プリロード -->
+  <!-- Preload -->
   <link rel="preload" as="image" href="./assets/images/spirit.png" />
   <link rel="preload" as="image" href="./assets/images/bg.png" />
-
-  <!-- (2.2) BGMプリロード -->
   <link rel="preload" as="audio" href="./assets/audio/bgm_day.mp3" />
   <link rel="preload" as="audio" href="./assets/audio/bgm_night.mp3" />
 
-  <!-- (3) スタイル（必要最低限 + BGMボタン右下） -->
-  <link rel="stylesheet" href="./style.css?v=ultra-v5-hp" />
-  <style>
-    /* ===== モバイルのダブルタップ拡大抑止 ===== */
-    html, body, .game-container, .battlefield, .menu, .hud, button, .chip, #enemy-lane, .spirit-wrap {
-      touch-action: manipulation;
-    }
-    * { -webkit-tap-highlight-color: rgba(0,0,0,0); }
-
-    /* ===== BGM ボタン（右下フローティング） ===== */
-    .game-container { position: relative; } /* フローティングの基準にする */
-
-    .floating-ui{
-      position: absolute;
-      right: 12px;
-      bottom: calc(12px + env(safe-area-inset-bottom));
-      z-index: 60;
-      pointer-events: none; /* 中のボタンだけクリック可 */
-    }
-    .floating-ui .bgm-toggle{
-      pointer-events: auto;
-      display: inline-flex;
-      align-items: center;
-      gap: .4em;
-      padding: 10px 14px;
-      border-radius: 999px;
-      border: 1px solid rgba(120,160,255,.35);
-      background: linear-gradient(180deg, rgba(28,36,52,.9), rgba(18,24,36,.9));
-      color: #dfe9ff;
-      font-weight: 600;
-      font-size: 14px;
-      letter-spacing: .02em;
-      box-shadow: 0 6px 14px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);
-      backdrop-filter: blur(6px);
-      transition: transform .08s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
-      cursor: pointer;
-    }
-    .floating-ui .bgm-toggle[aria-pressed="false"]{
-      opacity: .75;
-      border-color: rgba(120,160,255,.25);
-    }
-    @media(hover:hover){
-      .floating-ui .bgm-toggle:hover{
-        transform: translateY(-1px);
-        border-color: rgba(140,180,255,.55);
-        box-shadow: 0 8px 18px rgba(0,0,0,.4), 0 0 0 3px rgba(80,120,255,.12);
-      }
-    }
-    @media (max-width: 520px){
-      .floating-ui{ right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
-      .floating-ui .bgm-toggle{ padding: 8px 12px; font-size: 13px; }
-    }
-  </style>
+  <!-- Styles -->
+  <link rel="stylesheet" href="./style.css?v=ultra-v6-clean" />
 </head>
 <body>
-  <!-- (4) 18:9 のゲーム枠 -->
   <div class="game-container">
-    <!-- (4-1) HUD（右上） -->
+    <!-- HUD -->
     <div class="hud">
       <div class="hud-row">
         <div class="chip gold"><span class="label">Gold</span><span id="gold">0</span></div>
         <div class="chip dia"><span class="label">Dia</span><span id="diamond">0</span></div>
+        <!-- DPS は非表示化（CSSで display:none） -->
         <div class="chip dps"><span class="label">DPS</span><span id="dps">0</span></div>
         <div class="chip chain"><span class="label">Chain</span><span id="chain">2/15</span></div>
         <div class="chip"><span class="label">Stage</span><span id="stageLabel">1-1 / 1F</span></div>
         <div class="chip"><span class="label">残り</span><span id="remain">--</span></div>
 
-        <!-- レベル / EXP（Exp.jsがなくても見た目だけ表示） -->
+        <!-- Lv / EXP（Exp.jsがなくても見た目だけ表示） -->
         <span id="levelChip" class="chip">Lv 1</span>
-        <div style="width:120px;height:6px;background:#233040;border-radius:4px;overflow:hidden;border:1px solid #3a4a63">
-          <div id="expBar" style="height:100%;width:0%;background:linear-gradient(90deg,#78ffa8,#32e6ff)"></div>
+        <div class="expbar-wrap">
+          <div id="expBar" class="expbar-fill"></div>
         </div>
-        <small id="expLabel" style="opacity:.8">0 / 20</small>
+        <small id="expLabel" class="expbar-label">0 / 20</small>
 
         <!-- HP -->
         <div class="chip"><span class="label">HP</span><span id="playerHpLabel">100/100</span></div>
       </div>
     </div>
 
-    <!-- (4-2) バトルエリア -->
+    <!-- Battlefield -->
     <section class="battlefield">
       <div class="spirit-wrap">
         <img src="./assets/images/spirit.png" alt="精霊" class="spirit" width="32" height="32" />
         <div id="player-hp" class="player-hp"><div class="fill"></div></div>
       </div>
       <div id="enemy-lane" class="enemy-lane"></div>
+      <!-- ステージクリア表示（必要時に game.js で表示/非表示） -->
+      <div id="stage-clear" class="stage-clear" aria-hidden="true">CLEAR!</div>
     </section>
 
-    <!-- (4-3) ログ -->
+    <!-- Log（右上にBGMボタン） -->
     <section id="log" class="log" aria-live="polite">
-  <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
-  <!-- ここにログエントリが動的に追加されます -->
-</section>
+      <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
+      <!-- ログはここに動的に追加 -->
+    </section>
 
-    <!-- (4-4) メニュー -->
+    <!-- Menu -->
     <section class="menu">
       <button id="btn-status">ステータス</button>
       <button class="btn-rate">NONE</button>
       <button class="btn-range">NONE</button>
 
-      <!-- 装備ボタン -->
       <button id="btn-gear">装備</button>
       <script>
         document.getElementById('btn-gear')?.addEventListener('click', () => {
@@ -130,7 +77,7 @@
       <button id="btn-retry">リトライ</button>
     </section>
 
-    <!-- (4-5) スタート画面 -->
+    <!-- Start -->
     <div id="start-screen" aria-hidden="false">
       <div class="start-card">
         <h1 class="title">⚡ 雷精霊を育てよ！</h1>
@@ -139,24 +86,18 @@
           <button id="btn-new" class="btn primary">はじめから</button>
           <button id="btn-continue" class="btn ghost" disabled>つづきから</button>
         </div>
-        <p id="continue-hint" class="hint">
-          セーブデータがあれば「つづきから」が有効になります。
-        </p>
+        <p id="continue-hint" class="hint">セーブデータがあれば「つづきから」が有効になります。</p>
       </div>
     </div>
-   
-  </div> <!-- ← .game-container はここで閉じる（余計な </div> は不要） -->
+  </div>
 
-  <!-- (5) スクリプト -->
-  <!-- (5-1) EnemyDB を先に（game.js が参照） -->
+  <!-- Scripts -->
   <script src="./assets/js/enemy-db.js?v=1"></script>
-  <!-- (5-2) ゲーム本体 -->
-  <script src="./assets/js/game.js?v=6.3-stable"></script>
-  <!-- (5-3) 任意: Exp / Status がある場合 -->
+  <script src="./assets/js/game.js?v=6.4-clean"></script>
   <script src="./assets/js/exp.js?v=proto-01"></script>
-  <script src="./assets/js/status.js?v=proto-01"></script>
+  <script src="./assets/js/status.js?v=proto-02"></script>
 
-  <!-- (6) 初期化（重複initガード付き） -->
+  <!-- Init (Exp/Status) -->
   <script>
     window.addEventListener('load', () => {
       if (window.GameAPI && window.Exp && !window.Exp?._inited) {
@@ -170,94 +111,14 @@
     });
   </script>
 
-  <!-- (7) BGMトグル（右下ボタン） -->
-  <script>
-    (function () {
-      const btn = document.getElementById('btn-bgm');
-      if (!btn) return;
-
-      const KEY = 'bgmEnabled';
-      function getEnabled() {
-        const v = localStorage.getItem(KEY);
-        return v == null ? true : v === '1';
-      }
-      function setEnabled(on) { localStorage.setItem(KEY, on ? '1' : '0'); }
-      function pauseAllRaw() {
-        document.getElementById('bgm-day')?.pause();
-        document.getElementById('bgm-night')?.pause();
-      }
-      function syncButton() {
-        const on = getEnabled();
-        btn.setAttribute('aria-pressed', String(on));
-        btn.textContent = on ? '♪ BGM ON' : '♪ BGM OFF';
-      }
-      async function applyNow() {
-        // game.js 側が提供していればそれを使う
-        if (typeof window.ensureBgmInit === 'function') window.ensureBgmInit();
-        if (typeof window.applyBgmForStage === 'function') {
-          window.applyBgmForStage();
-        } else {
-          // フォールバック：ONなら day/night を切り替え、OFFなら停止
-          const on = getEnabled();
-          const isNight = !!window.GameAPI?.getStageInfo?.().isNight;
-          const day = document.getElementById('bgm-day');
-          const night = document.getElementById('bgm-night');
-          if (!day || !night) return;
-          if (on) {
-            (isNight ? day : night).pause();
-            const t = isNight ? night : day;
-            try { await t.play(); } catch {}
-          } else {
-            pauseAllRaw();
-          }
-        }
-        syncButton();
-      }
-      // 初期反映
-      syncButton();
-      // クリックでON/OFF
-      btn.addEventListener('click', async () => {
-        const next = !getEnabled();
-        setEnabled(next);
-        await applyNow();
-      });
-      // ステージ夜昼の変更に追従（GameAPI があれば）
-      if (window.GameAPI?.onStageChange) {
-        window.GameAPI.onStageChange(applyNow);
-      }
-      // ロード直後に同期
-      window.addEventListener('load', () => { setTimeout(applyNow, 0); });
-    })();
-  </script>
-
-  <!-- (8) Service Worker -->
+  <!-- Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     }
   </script>
 
-  <!-- (9) ズーム抑止（iOS Safari 対策）-->
-  <script>
-    (function () {
-      let lastTouchEnd = 0;
-      document.addEventListener('touchend', function (e) {
-        const now = Date.now();
-        if (now - lastTouchEnd <= 350) e.preventDefault();
-        lastTouchEnd = now;
-      }, { passive: false });
-      document.addEventListener('touchmove', function (e) {
-        if ((e.touches && e.touches.length > 1) || (typeof e.scale === 'number' && e.scale !== 1)) {
-          e.preventDefault();
-        }
-      }, { passive: false });
-      document.addEventListener('gesturestart',  e => e.preventDefault());
-      document.addEventListener('gesturechange', e => e.preventDefault());
-      document.addEventListener('gestureend',    e => e.preventDefault());
-    })();
-  </script>
-
-  <!-- (10) BGM Audio elements -->
+  <!-- Audio -->
   <audio id="bgm-day"   src="./assets/audio/bgm_day.mp3"   preload="auto" loop></audio>
   <audio id="bgm-night" src="./assets/audio/bgm_night.mp3" preload="auto" loop></audio>
 </body>

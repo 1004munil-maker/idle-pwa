@@ -1,22 +1,16 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.3-stable
-   主要ポイント:
-   - 「はじめから」で全データ初期化（Exp/Status/装備も可能な限り）
-   - 失敗→何度でも復帰: Retry常時有効 / ウォッチドッグ再セット
-   - 近接AI安定化: windup/strike/recoilは停止＆recoil終端でスナップ
-   - 押し込みはプレイヤーから離す方向
-   - ログ右上にBGMトグル（永続化）
-   - startStageHead() 先に盤面クリア→新規セット（敵HP残像防止）
+   Idle Lightning - game.js (EnemyDB連携) v6.4-clean
+   - BGMボタンは #log 内の #btn-bgm のみ（単一ソース・永続化）
+   - 「はじめから」で全データとStatusも確実にリセット
+   - 失敗ループ後のスポーン停止に対するウォッチドッグ強化
+   - 敵の移動を微減速、クリア時に中央に CLEAR! を表示してから進む
    ========================================================= */
 
-/* ========== (1) ヒット/押し込み ========== */
-const HIT_SCALE_SPIRIT = 0.42;
-const HIT_SCALE_ENEMY  = 0.40;
-const HIT_MARGIN       = 2;
-const ENGAGE_EXTRA     = 6;
-const PUSH_STRENGTH    = 0.10;
+/* ========== Config ========== */
+const ENEMY_SPEED_MUL = 0.88;       // 少しだけ減速
+const CLEAR_PAUSE_MS  = 3000;       // クリア表示の時間
 
-/* ========== (2) DOM ========== */
+/* ========== DOM ========== */
 const laneEl   = document.getElementById('enemy-lane');
 const logEl    = document.getElementById('log');
 const goldEl   = document.getElementById('gold');
@@ -26,31 +20,28 @@ const chainEl  = document.getElementById('chain');
 const stageLabelEl = document.getElementById('stageLabel');
 const remainEl = document.getElementById('remain');
 const spiritEl = document.querySelector('.spirit');
+const stageClearEl = document.getElementById('stage-clear');
 
 const playerHpBarEl   = document.getElementById('player-hp');
 const playerHpFillEl  = playerHpBarEl?.querySelector('.fill');
 const playerHpLabelEl = document.getElementById('playerHpLabel');
 
-/* ========== (3) スタート/メニュー ========== */
+/* ========== Start/Menu ========== */
 const startScreenEl  = document.getElementById('start-screen');
 const btnNew         = document.getElementById('btn-new');
 const btnContinue    = document.getElementById('btn-continue');
 const continueHintEl = document.getElementById('continue-hint');
-const btnPause  = document.getElementById('btn-pause');
 const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
 const btnStatus = document.getElementById('btn-status');
 
-/* ========== (4) レイアウト ========== */
+/* ========== Layout cache ========== */
 let laneRect;
-function measureRects(){
-  if (!laneEl) return;
-  laneRect = laneEl.getBoundingClientRect();
-}
+function measureRects(){ if (!laneEl) return; laneRect = laneEl.getBoundingClientRect(); }
 window.addEventListener('resize', measureRects);
 window.addEventListener('orientationchange', () => setTimeout(measureRects, 200));
 
-/* ========== (5) ログ ========== */
+/* ========== Log ========== */
 const MAX_LOG = 50;
 function addLog(msg, kind = 'info') {
   const div = document.createElement('div');
@@ -64,8 +55,8 @@ function logAttack(chainCount, totalDamage) {
   addLog(`連鎖×${chainCount}！ 合計 ${Math.round(totalDamage)} ダメージ`, 'gain');
 }
 
-/* ========== (6) セーブ/ロード ========== */
-const SAVE_KEY = 'idleLightningSaveV63';
+/* ========== Save/Load ========== */
+const SAVE_KEY = 'idleLightningSaveV64';
 function saveGame() {
   const data = {
     ts: Date.now(),
@@ -89,38 +80,17 @@ function loadGame() {
 }
 function hasSave() { return !!localStorage.getItem(SAVE_KEY); }
 
-/* ========== (7) ステート & ウォッチドッグ ========== */
-const gs = {
-  floor: 1,
-  chapter: 1,
-  stage: 1,
-  isNight: false,
-  hpScale: 1.0,
-  paused: false,
-  running: false
-};
-const watchdog = {
-  lastProgress: performance.now(),
-  lastFailAt: 0,
-  lastStageStartAt: 0
-};
+/* ========== State & watchdog ========== */
+const gs = { floor:1, chapter:1, stage:1, isNight:false, hpScale:1.0, paused:false, running:false };
+const watchdog = { lastProgress: performance.now(), lastFailAt: 0, lastStageStartAt: 0 };
 function touchProgress(){ watchdog.lastProgress = performance.now(); }
 
-/* ========== (8) 通貨/HP/UI ========== */
-let gold = 0;
-let diamonds = 0;
-let dpsSmoothed = 0;
-
-function refreshCurrencies(){
-  if (goldEl) goldEl.textContent = gold;
-  if (diaEl)  diaEl.textContent  = diamonds;
-  if (dpsEl)  dpsEl.textContent  = Math.round(dpsSmoothed);
-  mountStatusGoldPill();
-}
+/* ========== Currency/HP/UI ========== */
+let gold = 0, diamonds = 0, dpsSmoothed = 0;
+function refreshCurrencies(){ if (goldEl) goldEl.textContent = gold; if (diaEl) diaEl.textContent = diamonds; if (dpsEl) dpsEl.textContent = Math.round(dpsSmoothed); mountStatusGoldPill(); }
 refreshCurrencies();
 
-let playerHpMax = 100;
-let playerHp    = playerHpMax;
+let playerHpMax = 100, playerHp = playerHpMax;
 function updatePlayerHpUI(){
   const ratio = Math.max(0, Math.min(1, playerHp / playerHpMax));
   if (playerHpFillEl) playerHpFillEl.style.width = (ratio * 100).toFixed(1) + '%';
@@ -128,113 +98,67 @@ function updatePlayerHpUI(){
 }
 updatePlayerHpUI();
 
-/* ========== (9) 進行UI ========== */
-function updateStageLabel() {
-  if (stageLabelEl) stageLabelEl.textContent = `${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight ? ' 🌙' : ''}`;
-}
-function updateRemainLabel() {
+/* ========== Stage UI ========== */
+function updateStageLabel(){ if (stageLabelEl) stageLabelEl.textContent = `${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight ? ' 🌙' : ''}`; }
+function updateRemainLabel(){
   if (!remainEl) return;
   const left = Math.max(0, spawnPlan.total - spawnPlan.spawned) + spawnPlan.alive;
   remainEl.textContent = String(left);
 }
 updateStageLabel();
 
-/* ========== (10) 雷 ========== */
-const lightning = {
-  baseDmg: 8,
-  cooldown: 0.70,
-  cooldownBase: undefined,
-  range: 380,
-  baseRange: undefined,
-  chainCount: 2,
-  falloff: 0.85,
-  timer: 0
-};
+/* ========== Lightning ========== */
+const lightning = { baseDmg: 8, cooldown: 0.70, cooldownBase: undefined, range: 380, baseRange: undefined, chainCount: 2, falloff: 0.85, timer: 0 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 
-/* ========== (11) EnemyDB 参照（フォールバック） ========== */
+/* ========== EnemyDB ========== */
 const DB = (function(){
   const F = window.EnemyDB || {};
   const defs = F.defs || {
-    swarm: { name:'Swarm', icon:'🦂', size:28, speed:120, hp:20, dmg:8, reward:1,
-      atk:{ range:26, windup:0.50, active:0.20, lunge:12, rate:0.9, recoil:0.18 } },
-    runner:{ name:'Runner',icon:'🦅', size:26, speed:170, hp:14, dmg:10, reward:1,
-      atk:{ range:24, windup:0.40, active:0.18, lunge:14, rate:1.1, recoil:0.15 } },
-    tank:  { name:'Tank',  icon:'🦏', size:34, speed:90,  hp:90, dmg:20, reward:5,
-      atk:{ range:30, windup:0.70, active:0.25, lunge:10, rate:0.60, recoil:0.30 } },
+    swarm: { name:'Swarm', icon:'🦂', size:28, speed:120, hp:20, dmg:8, reward:1, atk:{ range:26, windup:0.50, active:0.20, lunge:12, rate:0.9, recoil:0.18 } },
+    runner:{ name:'Runner',icon:'🦅', size:26, speed:170, hp:14, dmg:10, reward:1, atk:{ range:24, windup:0.40, active:0.18, lunge:14, rate:1.1, recoil:0.15 } },
+    tank:  { name:'Tank',  icon:'🦏', size:34, speed:90,  hp:90, dmg:20, reward:5, atk:{ range:30, windup:0.70, active:0.25, lunge:10, rate:0.60, recoil:0.30 } },
   };
-  const weights = F.weights || (() => ([
-    { type:'swarm',  w:0.60 },
-    { type:'runner', w:0.25 },
-    { type:'tank',   w:0.15 },
-  ]));
+  const weights = F.weights || (() => ([ { type:'swarm', w:0.60 }, { type:'runner', w:0.25 }, { type:'tank', w:0.15 } ]));
   const chapterHpMul = F.chapterHpMul || (chapter => 1 + (chapter-1)*0.15);
   const nightHpMul   = F.nightHpMul   || (isNight => isNight? 1.8 : 1.0);
   return { defs, weights, chapterHpMul, nightHpMul };
 })();
 
-/* ========== (12) 敵プール ========== */
+/* ========== Enemy pool ========== */
 const enemyPool = [];
-function getEnemyEl() {
-  const el = enemyPool.pop();
-  if (el) return el;
-  const e = document.createElement('div');
-  e.className = 'enemy';
-  const icon = document.createElement('span'); icon.className = 'icon';
-  const hp = document.createElement('div');   hp.className = 'hp';
-  e.append(icon, hp);
-  return e;
-}
-function releaseEnemyEl(el) { el.remove(); enemyPool.push(el); }
+function getEnemyEl(){ const el = enemyPool.pop(); if (el) return el; const e = document.createElement('div'); e.className = 'enemy'; const icon = document.createElement('span'); icon.className = 'icon'; const hp = document.createElement('div'); hp.className = 'hp'; e.append(icon, hp); return e; }
+function releaseEnemyEl(el){ el.remove(); enemyPool.push(el); }
 function resetEnemyEl(el){
-  el.className = 'enemy';
-  el.style.cssText = '';
-  el.dataset.eid = '';
-  el.dataset.alive = '';
-  let iconEl = el.querySelector('.icon');
-  let hpEl   = el.querySelector('.hp');
+  el.className = 'enemy'; el.style.cssText = ''; el.dataset.eid = ''; el.dataset.alive = '';
+  let iconEl = el.querySelector('.icon'); let hpEl   = el.querySelector('.hp');
   if (!iconEl) { iconEl = document.createElement('span'); iconEl.className='icon'; el.prepend(iconEl); }
   if (!hpEl)   { hpEl   = document.createElement('div');   hpEl.className='hp';  el.append(hpEl); }
-  hpEl.style.width = '100%';
-  el.setAttribute('data-hp', '');
+  hpEl.style.width = '100%'; el.setAttribute('data-hp', '');
 }
 
-/* ========== (13) ステージ/スポーン ========== */
-function stageTotalCount(chapter, stage) {
-  const base = 8 + (stage - 1);
-  return (stage === 10) ? Math.round(base * 2) : base;
-}
-function hpMultiplier() {
-  return gs.hpScale * DB.chapterHpMul(gs.chapter) * DB.nightHpMul(gs.isNight);
-}
-const MAX_CONCURRENT = 40;
-const NIGHT_DIAMOND_RATE = 0.10;
+/* ========== Stage plan & spawn ========== */
+function stageTotalCount(chapter, stage) { const base = 8 + (stage - 1); return (stage === 10) ? Math.round(base * 2) : base; }
+function hpMultiplier(){ return gs.hpScale * DB.chapterHpMul(gs.chapter) * DB.nightHpMul(gs.isNight); }
 
+const MAX_CONCURRENT = 40; const NIGHT_DIAMOND_RATE = 0.10;
 let spawnPlan = { total: 0, spawned: 0, alive: 0 };
-let spawnTimer = 0;
-let baseSpawnDelay = 1000;
-let burstLeft = 0;
+let spawnTimer = 0, baseSpawnDelay = 1000, burstLeft = 0;
 
-function setupStageCounters() {
+function setupStageCounters(){
   spawnPlan.total   = stageTotalCount(gs.chapter, gs.stage);
   spawnPlan.spawned = 0;
   spawnPlan.alive   = 0;
   spawnTimer = 0;
   burstLeft = Math.min(3, spawnPlan.total);
   baseSpawnDelay = Math.max(450, 800 - gs.stage*25);
-  updateStageLabel();
-  updateRemainLabel();
+  updateStageLabel(); updateRemainLabel();
   addLog(`Stage 開始：${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight?' 🌙':''}`, 'dim');
   watchdog.lastStageStartAt = performance.now();
   touchProgress();
 }
 
-function pickEnemyType() {
-  const weights = DB.weights(gs.chapter, gs.stage);
-  const r = Math.random(); let acc = 0;
-  for (const x of weights) { acc += x.w; if (r <= acc) return x.type; }
-  return weights[0].type;
-}
+function pickEnemyType(){ const weights = DB.weights(gs.chapter, gs.stage); const r = Math.random(); let acc = 0; for (const x of weights) { acc += x.w; if (r <= acc) return x.type; } return weights[0].type; }
 
 let laneWidthCached = 0, laneHeightCached = 0;
 let enemySeq = 1;
@@ -269,20 +193,17 @@ function spawnEnemy(type = pickEnemyType()) {
     eid, el, def,
     x: startX, y: startY,
     vx: 0, vy: 0,
-    speed: def.speed,
+    speed: def.speed * ENEMY_SPEED_MUL, // 速度微減速
     hp: hpMax, maxHp: hpMax,
     reward: def.reward, dmg: def.dmg,
     t: 0,
     swayAmp: 6 + Math.random()*10,
     swayFreq: 1.0 + Math.random()*0.8,
-    state: 'chase', // 'chase' | 'windup' | 'strike' | 'recoil'
+    state: 'chase',
     st: 0,
     atkCool: 0,
-    strikeFromX: 0, strikeFromY: 0,
-    strikeToX: 0,   strikeToY: 0,
-    strikeHitDone: false,
-    recoilFromX: 0, recoilFromY: 0,
-    recoilToX: 0,   recoilToY: 0,
+    strikeFromX: 0, strikeFromY: 0, strikeToX: 0, strikeToY: 0,
+    strikeHitDone: false, recoilFromX: 0, recoilFromY: 0, recoilToX: 0, recoilToY: 0,
   });
 
   spawnPlan.spawned++;
@@ -294,15 +215,13 @@ function spawnEnemy(type = pickEnemyType()) {
 function trySpawn(dt) {
   if (spawnPlan.spawned >= spawnPlan.total) return;
   if (spawnPlan.alive   >= MAX_CONCURRENT) return;
-
   if (burstLeft > 0) { spawnEnemy(); burstLeft--; return; }
-
   spawnTimer += dt * 1000;
   const dynamicDelay = baseSpawnDelay + Math.max(0, (spawnPlan.alive - 12) * 12);
   if (spawnTimer >= dynamicDelay) { spawnTimer = 0; spawnEnemy(); }
 }
 
-/* ========== (14) ビーム演出 ========== */
+/* ========== Beam ========== */
 const beamPool = [];
 function getBeamEl(){ const el = beamPool.pop(); if(el) return el; const b=document.createElement('div'); b.className='beam'; return b; }
 function releaseBeamEl(el){ el.remove(); beamPool.push(el); }
@@ -312,25 +231,17 @@ function spawnBeam(x1, y1, x2, y2, life = 0.12) {
   const dx = x2 - x1, dy = y2 - y1;
   const len = Math.hypot(dx, dy);
   const ang = Math.atan2(dy, dx) * 180 / Math.PI;
-  el.style.left = `${x1}px`;
-  el.style.top  = `${y1}px`;
-  el.style.width = `${Math.max(1, len)}px`;
-  el.style.transform = `rotate(${ang}deg)`;
+  el.style.left = `${x1}px`; el.style.top  = `${y1}px`;
+  el.style.width = `${Math.max(1, len)}px`; el.style.transform = `rotate(${ang}deg)`;
   setTimeout(() => el.classList.add('fade'), (life * 1000 * 0.6) | 0);
   setTimeout(() => { el.classList.remove('fade'); releaseBeamEl(el); }, (life * 1000) | 0);
 }
 
-/* ========== (15) ヘルパ ========== */
-function centerScreen(el) {
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-}
-function dist2(ax, ay, bx, by) {
-  const dx = ax - bx, dy = ay - by;
-  return dx * dx + dy * dy;
-}
+/* ========== Helpers ========== */
+function centerScreen(el) { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+function dist2(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
 
-/* ========== (16) EXP フォールバック ========== */
+/* ========== EXP Fallback ========== */
 const ExpAPI = {
   expFromKill(gs, type){
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
@@ -343,13 +254,10 @@ const ExpAPI = {
     if (window.Exp?.expFromStageClear) return window.Exp.expFromStageClear(gs);
     return 10 + (gs.chapter-1)*5 + (gs.stage===10?15:0);
   },
-  addExp(v, why){
-    if (window.Exp?.addExp) window.Exp.addExp(v, why);
-    else addLog(`+${v} EXP (${why})`, 'gain');
-  }
+  addExp(v, why){ if (window.Exp?.addExp) window.Exp.addExp(v, why); else addLog(`+${v} EXP (${why})`, 'gain'); }
 };
 
-/* ========== (17) 敵削除 ========== */
+/* ========== Remove enemy ========== */
 function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   const idx = enemies.findIndex(o => o.eid === eid);
   if (idx === -1) return;
@@ -374,7 +282,7 @@ function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   }
 }
 
-/* ========== (18) プレイヤー被ダメ ========== */
+/* ========== Player damage ========== */
 function damagePlayer(amount){
   playerHp = Math.max(0, playerHp - (Number.isFinite(amount) ? amount : 0));
   updatePlayerHpUI();
@@ -384,7 +292,7 @@ function damagePlayer(amount){
   }
 }
 
-/* ========== (19) 落雷攻撃 ========== */
+/* ========== Attack ========== */
 function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
@@ -449,17 +357,13 @@ function tryAttack(dt) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
-      if (gs.isNight && Math.random() < NIGHT_DIAMOND_RATE) {
-        diamonds++; diaEl && (diaEl.textContent = diamonds);
-        addLog('💎 ダイヤを獲得！', 'gain');
-      }
+      if (gs.isNight && Math.random() < NIGHT_DIAMOND_RATE) { diamonds++; diaEl && (diaEl.textContent = diamonds); addLog('💎 ダイヤを獲得！', 'gain'); }
       const gMul = window.Status ? window.Status.getGoldMul() : 1;
       const gainG = Math.max(1, Math.round((e.reward||1) * gMul));
       gold += gainG; goldEl && (goldEl.textContent = gold);
 
       const expGain = ExpAPI.expFromKill(gs, e.def && e.def.name ? e.def.name.toLowerCase() : 'swarm');
       ExpAPI.addExp(expGain, 'kill');
-      addLog(`+${expGain} EXP (kill)`, 'gain');
 
       removeEnemyById(e.eid, { by:'beam', fade:true });
     }
@@ -470,19 +374,13 @@ function tryAttack(dt) {
   touchProgress();
 }
 
-/* ========== (20) ゲームループ/AI ========== */
+/* ========== Loop & AI ========== */
 let last;
+let clearPending = false;
 function getSpiritCenter(){ return centerScreen(spiritEl); }
 function getEnemyCenter(e){ return centerScreen(e.el); }
-
-function enemyRadius(e){
-  const size = (e.def?.size) || 28;
-  return Math.max(10, size * HIT_SCALE_ENEMY);
-}
-function spiritRadius(){
-  const sr = spiritEl.getBoundingClientRect();
-  return Math.max(sr.width, sr.height) * HIT_SCALE_SPIRIT || 16;
-}
+function enemyRadius(e){ const size = (e.def?.size) || 28; return Math.max(10, size * 0.40); }
+function spiritRadius(){ const sr = spiritEl.getBoundingClientRect(); return Math.max(sr.width, sr.height) * 0.42 || 16; }
 
 function gameLoop(now = performance.now()) {
   let dt = (now - last) / 1000; last = now;
@@ -491,15 +389,12 @@ function gameLoop(now = performance.now()) {
 
   if (!gs.running || gs.paused) { requestAnimationFrame(gameLoop); return; }
 
-  if (!laneRect) {
-    measureRects();
-  } else {
+  if (!laneRect) { measureRects(); }
+  else {
     const r = laneEl.getBoundingClientRect();
     if (Math.abs(r.top - laneRect.top) > 1 ||
         Math.abs(r.height - laneRect.height) > 1 ||
-        Math.abs(r.left - laneRect.left) > 1) {
-      laneRect = r;
-    }
+        Math.abs(r.left - laneRect.left) > 1) { laneRect = r; }
   }
 
   const scScr = getSpiritCenter();
@@ -510,9 +405,7 @@ function gameLoop(now = performance.now()) {
 
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    e.t += dt;
-    e.st += dt;
-
+    e.t += dt; e.st += dt;
     if (e.atkCool > 0) e.atkCool -= dt;
 
     let dx = sxLane - e.x, dy = syLane - e.y;
@@ -521,46 +414,27 @@ function gameLoop(now = performance.now()) {
 
     const A  = e.def.atk;
     const rE = enemyRadius(e);
-    const rr = rS + rE + HIT_MARGIN;
+    const rr = rS + rE + 2;
     const inMelee = dist <= Math.max(rr, A.range);
 
     if (e.state === 'chase') {
-      const desiredVx = nx * e.speed;
-      const desiredVy = ny * e.speed;
+      const desiredVx = nx * e.speed, desiredVy = ny * e.speed;
       const steer = 0.5;
       e.vx += (desiredVx - e.vx) * steer;
       e.vy += (desiredVy - e.vy) * steer;
-
       const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
       e.x += e.vx * dt;
       e.y += (e.vy + sway * 0.8) * dt;
 
-      // プレイヤーから離す方向に押し込み
-      if (dist < (rr + ENGAGE_EXTRA)) {
-        e.x -= nx * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
-        e.y -= ny * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
-      }
+      if (dist < (rr + 6)) { e.x -= nx * (rr + 6 - dist) * 0.10; e.y -= ny * (rr + 6 - dist) * 0.10; }
 
-      if (inMelee && e.atkCool <= 0) {
-        e.state = 'windup';
-        e.st = 0;
-        e.vx = e.vy = 0;
-        e.el.classList.add('pose-windup');
-      }
+      if (inMelee && e.atkCool <= 0) { e.state = 'windup'; e.st = 0; e.vx = e.vy = 0; e.el.classList.add('pose-windup'); }
     }
     else if (e.state === 'windup') {
       e.vx = e.vy = 0;
       if (e.st >= A.windup) {
-        e.strikeFromX = e.x;
-        e.strikeFromY = e.y;
-        e.strikeToX   = e.x - A.lunge;
-        e.strikeToY   = e.y;
-
-        e.strikeHitDone = false;
-        e.state = 'strike';
-        e.st = 0;
-        e.el.classList.remove('pose-windup');
-        e.el.classList.add('pose-strike');
+        e.strikeFromX = e.x; e.strikeFromY = e.y; e.strikeToX = e.x - A.lunge; e.strikeToY = e.y;
+        e.strikeHitDone = false; e.state = 'strike'; e.st = 0; e.el.classList.remove('pose-windup'); e.el.classList.add('pose-strike');
       }
     }
     else if (e.state === 'strike') {
@@ -575,16 +449,8 @@ function gameLoop(now = performance.now()) {
         addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
         damagePlayer(hitDmg);
 
-        e.recoilFromX = e.x;
-        e.recoilFromY = e.y;
-        e.recoilToX   = e.strikeFromX;
-        e.recoilToY   = e.strikeFromY;
-
-        e.state = 'recoil';
-        e.st = 0;
-        e.atkCool = A.rate;
-        e.el.classList.remove('pose-strike');
-        e.el.classList.add('pose-recoil');
+        e.recoilFromX = e.x; e.recoilFromY = e.y; e.recoilToX = e.strikeFromX; e.recoilToY = e.strikeFromY;
+        e.state = 'recoil'; e.st = 0; e.atkCool = A.rate; e.el.classList.remove('pose-strike'); e.el.classList.add('pose-recoil');
       }
     }
     else if (e.state === 'recoil') {
@@ -592,16 +458,10 @@ function gameLoop(now = performance.now()) {
       const t = Math.min(1, e.st / A.recoil);
       const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
       const ry = e.recoilFromY + (e.recoilToY - e.recoilFromY) * t;
-      e.x = rx;
-      e.y = ry;
-
+      e.x = rx; e.y = ry;
       if (e.st >= A.recoil) {
-        e.x = e.recoilToX;
-        e.y = e.recoilToY;
-        e.vx = 0; e.vy = 0;
-        e.state = 'chase';
-        e.st = 0;
-        e.el.classList.remove('pose-recoil');
+        e.x = e.recoilToX; e.y = e.recoilToY; e.vx = 0; e.vy = 0;
+        e.state = 'chase'; e.st = 0; e.el.classList.remove('pose-recoil');
       }
     }
 
@@ -610,8 +470,7 @@ function gameLoop(now = performance.now()) {
     const ec = getEnemyCenter(e);
     const br = laneRect;
     const marginX = 160, marginY = 200;
-    if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
-        ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+    if (ec.x < br.left - marginX || ec.x > br.right + marginX || ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
       const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
       addLog(`突破（escape）：${e.def.name}（-${escDmg} HP）`, 'alert');
       damagePlayer(escDmg);
@@ -623,11 +482,12 @@ function gameLoop(now = performance.now()) {
   tryAttack(dt);
   trySpawn(dt);
 
-  if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
-    nextStage();
+  // クリア検知（遅延して遷移）
+  if (!clearPending && spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
+    showClearThenAdvance();
   }
 
-  // ウォッチドッグ: 失敗直後や開始直後に停滞したら再セット
+  // Watchdog（停滞対策を少し広めの条件で）
   const nowMs = performance.now();
   if (gs.running && !gs.paused) {
     const noEnemy = enemies.length === 0 && spawnPlan.alive === 0;
@@ -635,8 +495,8 @@ function gameLoop(now = performance.now()) {
     const sinceStart = nowMs - watchdog.lastStageStartAt;
     const sinceFail  = nowMs - watchdog.lastFailAt;
     const sinceProg  = nowMs - watchdog.lastProgress;
-
-    if (noEnemy && notSpawning && sinceStart > 1200 && sinceFail > 800 && sinceProg > 2500) {
+    if ( (noEnemy && notSpawning && sinceStart > 1200 && sinceFail > 600 && sinceProg > 2000) ||
+         (sinceProg > 6000) ) {
       addLog('🛠 再起動ガード: ステージを再セット', 'dim');
       startStageHead();
       touchProgress();
@@ -646,9 +506,9 @@ function gameLoop(now = performance.now()) {
   requestAnimationFrame(gameLoop);
 }
 
-/* ========== (21) ステージ遷移 ========== */
+/* ========== Stage flow ========== */
 function startStageHead() {
-  // 盤面を空に（敵HP残像防止）
+  clearPending = false;
   clearAllEnemies();
   enemySeq = 1;
 
@@ -657,29 +517,18 @@ function startStageHead() {
   playerHp = playerHpMax;
   updatePlayerHpUI();
   measureRects();
-
-  // BGM反映
   applyBgmForStage();
 }
 
-function nextStage() {
+function nextStageInternal() {
   addLog(`✅ クリア：${gs.chapter}-${gs.stage} / ${gs.floor}F`, 'gain');
-
   const clearExp = ExpAPI.expFromStageClear(gs);
   ExpAPI.addExp(clearExp, 'clear');
-  addLog(`+${clearExp} EXP (clear)`, 'gain');
 
   gs.stage += 1;
   if (gs.stage > 10) {
-    gs.stage = 1;
-    gs.isNight = false;
-    gs.chapter += 1;
-    if (gs.chapter > 30) {
-      gs.chapter = 1;
-      gs.floor += 1;
-      gs.hpScale = +(gs.hpScale * 1.5).toFixed(6);
-      addLog(`🔺 階層UP！ いま ${gs.floor}F（HP係数×${gs.hpScale.toFixed(2)}）`, 'gain');
-    }
+    gs.stage = 1; gs.isNight = false; gs.chapter += 1;
+    if (gs.chapter > 30) { gs.chapter = 1; gs.floor += 1; gs.hpScale = +(gs.hpScale * 1.5).toFixed(6); addLog(`🔺 階層UP！ いま ${gs.floor}F（HP係数×${gs.hpScale.toFixed(2)}）`, 'gain'); }
   }
   clearAllEnemies();
   startStageHead();
@@ -687,40 +536,34 @@ function nextStage() {
   emitStageChange();
 }
 
+function showClearThenAdvance(){
+  clearPending = true;
+  if (stageClearEl){
+    stageClearEl.setAttribute('aria-hidden','false');
+    setTimeout(()=> stageClearEl.setAttribute('aria-hidden','true'), CLEAR_PAUSE_MS - 250);
+  }
+  setTimeout(()=> { nextStageInternal(); }, CLEAR_PAUSE_MS);
+}
+
 function failStage() {
   clearAllEnemies();
-  // 章は維持、ステージを1へ（要件通り: 1-8敗北→1-1、2-7敗北→2-1）
-  gs.stage = 1;
-  gs.isNight = false;
-
-  // 再スポーンの各種初期化
-  spawnTimer = 0;
-  baseSpawnDelay = 1000;
-  setupStageCounters();
-
+  gs.stage = 1; gs.isNight = false;
+  spawnTimer = 0; baseSpawnDelay = 1000;
   addLog(`↩︎ リトライ：${gs.chapter}-1 / ${gs.floor}F から`, 'alert');
 
-  gs.paused = false;
-  gs.running = true;
-
-  // 大きいdt防止
+  gs.paused = false; gs.running = true;
   last = performance.now();
 
-  startStageHead();
+  startStageHead(); // ← 二重初期化を避ける
   saveGame();
 
   watchdog.lastFailAt = performance.now();
   emitStageChange();
 }
 
-function clearAllEnemies() {
-  while (enemies.length) {
-    const { eid } = enemies[enemies.length - 1];
-    removeEnemyById(eid, { by:'clear', fade:false });
-  }
-}
+function clearAllEnemies(){ while (enemies.length) { const { eid } = enemies[enemies.length - 1]; removeEnemyById(eid, { by:'clear', fade:false }); } }
 
-/* ========== (21.9) NewGame: 全初期化 ========== */
+/* ========== New Game: hard reset ========== */
 function resetAllProgressHard(){
   try { localStorage.removeItem(SAVE_KEY); } catch {}
 
@@ -729,68 +572,36 @@ function resetAllProgressHard(){
   playerHpMax = 100; playerHp = playerHpMax; updatePlayerHpUI();
   lightning.baseDmg = 8; lightning.cooldown = 0.70; lightning.range = 380; lightning.chainCount = 2;
 
-  clearAllEnemies();
-  enemySeq = 1;
-  updateRemainLabel();
+  clearAllEnemies(); enemySeq = 1; updateRemainLabel();
 
   // 外部モジュールの初期化（あれば）
   try { window.Exp?.reset?.(); } catch {}
   try { window.Status?.reset?.(); } catch {}
 
-  // フォールバック: よく使うキー接頭辞をパージ（必要に応じて増やしてください）
+  // よく使うキー接頭辞をパージ（装備は今回はスキップ可）
   try {
-    const toZapPrefixes = ['idleLightning', 'il:', 'exp', 'status', 'gear'];
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (!k) continue;
-      if (toZapPrefixes.some(p => k.startsWith(p))) localStorage.removeItem(k);
-    }
+    const toZap = [ 'idleLightningSaveV63', 'idleLightningSaveV64', 'idleLightningStatusV1' ];
+    for (const k of toZap) localStorage.removeItem(k);
   } catch {}
 
-  refreshCurrencies();
-  updateStageLabel();
+  refreshCurrencies(); updateStageLabel();
 }
 
-/* ========== (22) Start/Continue/一時停止 ========== */
+/* ========== Controls ========== */
 function showStartScreen() {
-  if (hasSave()) {
-    btnContinue && (btnContinue.disabled = false);
-    if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。';
-  } else {
-    btnContinue && (btnContinue.disabled = true);
-    if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。';
-  }
-  startScreenEl?.setAttribute('aria-hidden', 'false');
-  gs.running = false;
+  if (hasSave()) { btnContinue && (btnContinue.disabled = false); if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。'; }
+  else { btnContinue && (btnContinue.disabled = true); if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。'; }
+  startScreenEl?.setAttribute('aria-hidden', 'false'); gs.running = false;
 }
-function hideStartScreen() {
-  startScreenEl?.setAttribute('aria-hidden', 'true');
-  gs.running = true;
-  gs.paused = false;
-  measureRects();
-  startStageHead();
-}
+function hideStartScreen() { startScreenEl?.setAttribute('aria-hidden', 'true'); gs.running = true; gs.paused = false; measureRects(); startStageHead(); }
 
-btnNew?.addEventListener('click', () => {
-  resetAllProgressHard();
-  saveGame();
-  hideStartScreen();
-});
-
+btnNew?.addEventListener('click', () => { resetAllProgressHard(); saveGame(); hideStartScreen(); });
 btnContinue?.addEventListener('click', () => {
   const data = loadGame();
   if (data) {
-    gold = data.gold ?? gold;
-    diamonds = data.diamonds ?? 0;
-    refreshCurrencies();
-    gs.floor = data.floor ?? 1;
-    gs.chapter = data.chapter ?? 1;
-    gs.stage = data.stage ?? 1;
-    gs.isNight = !!data.isNight;
-    gs.hpScale = data.hpScale ?? 1.0;
-    playerHpMax = data.playerHpMax ?? 100;
-    playerHp    = data.playerHp ?? playerHpMax;
-    updatePlayerHpUI();
+    gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();
+    gs.floor = data.floor ?? 1; gs.chapter = data.chapter ?? 1; gs.stage = data.stage ?? 1; gs.isNight = !!data.isNight; gs.hpScale = data.hpScale ?? 1.0;
+    playerHpMax = data.playerHpMax ?? 100; playerHp = data.playerHp ?? playerHpMax; updatePlayerHpUI();
     if (data.lightning) {
       lightning.baseDmg   = data.lightning.baseDmg   ?? lightning.baseDmg;
       lightning.cooldown  = data.lightning.cooldown  ?? lightning.cooldown;
@@ -802,92 +613,63 @@ btnContinue?.addEventListener('click', () => {
   hideStartScreen();
 });
 
-btnPause?.addEventListener('click', () => { gs.paused = true;  addLog('⏸ 一時停止', 'dim'); });
-btnResume?.addEventListener('click',()=> { gs.paused = false; addLog('▶ 再開',   'dim'); });
-// Retry は常に動作
-btnRetry?.addEventListener('click', () => {
-  addLog('↻ リトライ（章の頭へ）', 'alert');
-  failStage();
-});
+btnResume?.addEventListener('click', () => { gs.paused = false; addLog('▶ 再開', 'dim'); });
+btnRetry ?.addEventListener('click', () => { addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
 
-// オートセーブ
 setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
-/* ========== (23) GameAPI ========== */
+/* ========== GameAPI ========== */
 const listeners = { stageChange: new Set() };
 function emitStageChange(){ listeners.stageChange.forEach(fn=>{ try{ fn(getStageInfo()); }catch{} }); }
 function getStageInfo(){ return { floor:gs.floor, chapter:gs.chapter, stage:gs.stage, isNight:gs.isNight }; }
 
 window.GameAPI = {
-  // 通貨
-  getGold: ()=>gold,
-  addGold: (v)=>{ gold+=v; refreshCurrencies(); saveGame(); },
-  spendGold: (v)=>{ if (gold>=v){ gold-=v; refreshCurrencies(); saveGame(); return true;} return false; },
-  getDiamonds: ()=>diamonds,
-  addDiamonds: (v)=>{ diamonds+=v; refreshCurrencies(); saveGame(); },
+  getGold: ()=>gold, addGold:(v)=>{ gold+=v; refreshCurrencies(); saveGame(); },
+  spendGold:(v)=>{ if (gold>=v){ gold-=v; refreshCurrencies(); saveGame(); return true;} return false; },
+  getDiamonds: ()=>diamonds, addDiamonds:(v)=>{ diamonds+=v; refreshCurrencies(); saveGame(); },
 
-  // 雷
   lightning,
-  setBaseDmg: (v)=>{ lightning.baseDmg = Math.max(1, v); saveGame(); },
-  setCooldown: (v)=>{ lightning.cooldown = Math.max(0.15, v); saveGame(); },
-  setRange: (v)=>{ lightning.range = Math.max(60, v); saveGame(); },
-  setChain: (v)=>{ lightning.chainCount = Math.max(0, Math.min(14, v)); chainEl && (chainEl.textContent = `${lightning.chainCount}/15`); saveGame(); },
+  setBaseDmg:(v)=>{ lightning.baseDmg = Math.max(1, v); saveGame(); },
+  setCooldown:(v)=>{ lightning.cooldown = Math.max(0.15, v); saveGame(); },
+  setRange:(v)=>{ lightning.range = Math.max(60, v); saveGame(); },
+  setChain:(v)=>{ lightning.chainCount = Math.max(0, Math.min(14, v)); chainEl && (chainEl.textContent = `${lightning.chainCount}/15`); saveGame(); },
 
-  // プレイヤー
   getPlayerHp: ()=>({ hp:playerHp, max:playerHpMax }),
-  healPlayer: (v)=>{ playerHp=Math.min(playerHpMax, playerHp+v); updatePlayerHpUI(); saveGame(); },
-  setPlayerHpMax: (m)=>{ playerHpMax=Math.max(1,m); playerHp=Math.min(playerHp,playerHpMax); updatePlayerHpUI(); saveGame(); },
+  healPlayer:(v)=>{ playerHp=Math.min(playerHpMax, playerHp+v); updatePlayerHpUI(); saveGame(); },
+  setPlayerHpMax:(m)=>{ playerHpMax=Math.max(1,m); playerHp=Math.min(playerHp,playerHpMax); updatePlayerHpUI(); saveGame(); },
 
-  // ステージ
-  getStageInfo,
-  onStageChange: (fn)=>{ listeners.stageChange.add(fn); },
-  offStageChange:(fn)=>{ listeners.stageChange.delete(fn); },
-
-  // 便宜
-  addLog,
-  updateRemainLabel,
+  getStageInfo, onStageChange:(fn)=>{ listeners.stageChange.add(fn); }, offStageChange:(fn)=>{ listeners.stageChange.delete(fn); },
+  addLog, updateRemainLabel,
 };
 
-/* ========== (24) 初期化 ========== */
-function init() {
-  measureRects();
-  addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
-  last = performance.now();
-  requestAnimationFrame(gameLoop);
+/* ========== BGM ========== */
+const BGM_KEY = 'bgmEnabled';
+function bgmEnabled(){ const v = localStorage.getItem(BGM_KEY); return v == null ? true : v === '1'; }
+function setBgmEnabled(on){ try { localStorage.setItem(BGM_KEY, on ? '1' : '0'); } catch {} }
+function ensureBgmInit(){ const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night'); if (!day || !night) return; day.volume = 0.7; night.volume = 0.7; }
+async function applyBgmForStage(){
+  ensureBgmInit();
+  const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night');
+  if (!day || !night) return;
+  if (bgmEnabled()) { if (gs.isNight) { try{ day.pause(); await night.play(); }catch{} } else { try{ night.pause(); await day.play(); }catch{} } }
+  else { try{ day.pause(); night.pause(); }catch{} }
+  const btn = document.getElementById('btn-bgm');
+  if (btn){ btn.setAttribute('aria-pressed', String(bgmEnabled())); btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF'; }
 }
-window.addEventListener('load', () => {
-  init();
-  showStartScreen();
+function wireBgmToggleButton(){
+  const btn = document.getElementById('btn-bgm'); if (!btn) return;
+  const syncBtn = () => { btn.setAttribute('aria-pressed', String(bgmEnabled())); btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF'; };
+  syncBtn();
+  btn.addEventListener('click', async () => { setBgmEnabled(!bgmEnabled()); await applyBgmForStage(); });
+  window.GameAPI?.onStageChange?.(applyBgmForStage);
+}
 
-  // Status 初期化（lightning の基準値退避＆反映）
-  setTimeout(()=> {
-    if (window.Status && window.GameAPI){
-      if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown;
-      if (lightning.baseRange==null)    lightning.baseRange    = lightning.range;
-      window.Status.init(window.GameAPI);
-      mountStatusGoldPill();
-    }
-  }, 0);
-
-  btnStatus?.addEventListener('click', ()=>{
-    if (window.Status && window.GameAPI) window.Status.open(window.GameAPI);
-    setTimeout(mountStatusGoldPill, 0);
-  });
-
-  // BGMボタン（ON/OFF）
-  wireBgmToggleButton();
-});
-
-/* ========== (25) ユーティリティ: テキスト一致 ========== */
+/* ========== Status gold pill (title area) ========== */
 function queryByText(root, tagSelector, contains){
   const els = root.querySelectorAll(tagSelector);
-  for (const el of els) {
-    if ((el.textContent||'').trim().includes(contains)) return el;
-  }
+  for (const el of els) { if ((el.textContent||'').trim().includes(contains)) return el; }
   return null;
 }
-
-/* ========== (26) ステータス見出しにゴールドピル ========== */
 function mountStatusGoldPill(){
   try{
     const root = document.querySelector('[data-status-root], .status, .status-modal, #status') || document.body;
@@ -898,63 +680,25 @@ function mountStatusGoldPill(){
     if (!pill){
       pill = document.createElement('span');
       pill.className = 'gold-pill';
-      pill.style.cssText = `
-        margin-left:.5rem; padding:.1rem .45rem; border:1px solid rgba(255,215,0,.7);
-        border-radius:999px; font-size:.85em; white-space:nowrap;
-        background:rgba(255,215,0,.08); vertical-align:baseline; display:inline-block;
-      `;
+      pill.style.cssText = `margin-left:.5rem; padding:.1rem .45rem; border:1px solid rgba(255,215,0,.7);
+        border-radius:999px; font-size:.85em; white-space:nowrap; background:rgba(255,215,0,.08); vertical-align:baseline; display:inline-block;`;
       title.appendChild(pill);
     }
     pill.textContent = `💰 ${gold.toLocaleString()}`;
   }catch{}
 }
 
-/* ========== (27) BGM 管理 ========== */
-const BGM_KEY = 'bgmEnabled';
-function bgmEnabled(){ const v = localStorage.getItem(BGM_KEY); return v == null ? true : v === '1'; }
-function setBgmEnabled(on){ try { localStorage.setItem(BGM_KEY, on ? '1' : '0'); } catch {} }
-
-function ensureBgmInit(){
-  const day = document.getElementById('bgm-day');
-  const night = document.getElementById('bgm-night');
-  if (!day || !night) return;
-  day.volume = 0.7;
-  night.volume = 0.7;
+/* ========== Init ========== */
+function init() {
+  measureRects();
+  addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
+  last = performance.now();
+  requestAnimationFrame(gameLoop);
 }
-
-async function applyBgmForStage(){
-  ensureBgmInit();
-  const day = document.getElementById('bgm-day');
-  const night = document.getElementById('bgm-night');
-  if (!day || !night) return;
-
-  if (bgmEnabled()) {
-    if (gs.isNight) { try{ day.pause(); await night.play(); }catch{} }
-    else            { try{ night.pause(); await day.play(); }catch{} }
-  } else {
-    try{ day.pause(); night.pause(); }catch{}
-  }
-
-  // ボタンの表示更新
-  const btn = document.getElementById('btn-bgm');
-  if (btn){
-    btn.setAttribute('aria-pressed', String(bgmEnabled()));
-    btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF';
-  }
-}
-
-function wireBgmToggleButton(){
-  const btn = document.getElementById('btn-bgm');
-  if (!btn) return;
-  const syncBtn = () => {
-    btn.setAttribute('aria-pressed', String(bgmEnabled()));
-    btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF';
-  };
-  syncBtn();
-  btn.addEventListener('click', async () => {
-    setBgmEnabled(!bgmEnabled());
-    await applyBgmForStage();
-  });
-  // ステージ変化でBGMも切り替え
-  window.GameAPI?.onStageChange?.(applyBgmForStage);
-}
+window.addEventListener('load', () => {
+  init();
+  showStartScreen();
+  setTimeout(()=> { if (window.Status && window.GameAPI){ if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown; if (lightning.baseRange==null) lightning.baseRange = lightning.range; window.Status.init(window.GameAPI); mountStatusGoldPill(); } }, 0);
+  btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
+  wireBgmToggleButton();
+});
