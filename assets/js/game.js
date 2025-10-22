@@ -634,15 +634,22 @@ function nextStage() {
 
 function failStage() {
   clearAllEnemies();
+
+  // ステートを章頭に戻す
   gs.stage = 1;
   gs.isNight = false;
-  spawnTimer = 0;
-  baseSpawnDelay = 1000;
-  setupStageCounters();
-  addLog(`↩︎ リトライ：${gs.chapter}-1 / ${gs.floor}F から`, 'alert');
+
+  // HPは即満タンに戻す（UI更新も）
+  playerHp = playerHpMax;
+  updatePlayerHpUI();
+
+  // 走行フラグを確実にON
   gs.paused = false;
   gs.running = true;
-  startStageHead();
+
+  // ステージ頭のカウンタや湧きをまとめて初期化
+  startStageHead();   // ← この中で setupStageCounters() が呼ばれる
+
   saveGame();
 }
 
