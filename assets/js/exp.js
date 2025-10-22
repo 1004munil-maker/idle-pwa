@@ -4,17 +4,19 @@
 // - Kill/Clear の付与は game.js 側で呼ばれる（Exp.addExp）
 // - レベルアップ時は基礎ATK(=雷baseDmg)を +1、ログ表示
 // - ★Fix: ロード/初期化時に need を必ず再計算＆残余EXPで即時レベルアップ（式変更や古いデータに強い）
+// - ★Fix: UI更新は要素ごとに個別更新（どれか欠けても他は更新される）
 
 (function(){
   const SAVE_KEY = 'idleLightningExpV1';
 
+  // ---- UI参照（init前は未確定なので後で取り直すことがある）----
   const ui = {
     lvChip:  document.getElementById('levelChip'),
     bar:     document.getElementById('expBar'),
     label:   document.getElementById('expLabel'),
   };
 
-  // 必要経験値カーブ：Lv1→20、以降 1.25^ (lv-1)
+  // 必要経験値カーブ：Lv1→20、以降 1.25^(lv-1)
   function reqExp(lv){
     const L = Math.max(1, lv|0);
     return Math.max(1, Math.floor(20 * Math.pow(1.25, L - 1)));
@@ -43,12 +45,20 @@
     localStorage.setItem(SAVE_KEY, JSON.stringify(st));
   }
 
+  // ---- UI更新（要素ごとに個別更新）----
   function refreshUI(){
-    if (!ui.lvChip || !ui.bar || !ui.label) return;
-    ui.lvChip.textContent = `Lv ${st.lv}`;
-    const pct = Math.max(0, Math.min(1, st.exp / st.need));
-    ui.bar.style.width = (pct*100).toFixed(1) + '%';
-    ui.label.textContent = `${st.exp} / ${st.need}`;
+    if (!ui.lvChip || !ui.bar || !ui.label) {
+      // どれか未取得なら取り直しを試みる
+      ui.lvChip = ui.lvChip || document.getElementById('levelChip');
+      ui.bar    = ui.bar    || document.getElementById('expBar');
+      ui.label  = ui.label  || document.getElementById('expLabel');
+    }
+    if (ui.lvChip) ui.lvChip.textContent = `Lv ${st.lv}`;
+    if (ui.bar) {
+      const pct = Math.max(0, Math.min(1, st.exp / st.need));
+      ui.bar.style.width = (pct * 100).toFixed(1) + '%';
+    }
+    if (ui.label) ui.label.textContent = `${st.exp} / ${st.need}`;
   }
 
   function levelUpTimes(times){
@@ -67,8 +77,7 @@
       st.lv++;
       st.need = reqExp(st.lv);    // ★毎回最新式で再計算
       upCount++;
-      // セーフガード（万一の無限防止）
-      if (upCount > 1000) break;
+      if (upCount > 1000) break;  // セーフガード
     }
     if (upCount > 0) levelUpTimes(upCount);
   }
@@ -87,11 +96,9 @@
       game = g;
 
       // DOMがまだなら取り直す
-      if (!ui.lvChip || !ui.bar || !ui.label) {
-        ui.lvChip = document.getElementById('levelChip');
-        ui.bar    = document.getElementById('expBar');
-        ui.label  = document.getElementById('expLabel');
-      }
+      ui.lvChip = document.getElementById('levelChip');
+      ui.bar    = document.getElementById('expBar');
+      ui.label  = document.getElementById('expLabel');
 
       // ★ロード時マイグレーション：need 再計算＆余剰EXP消化
       st.need = reqExp(st.lv);
@@ -105,7 +112,7 @@
     getExp:   ()=> st.exp,
     getNeed:  ()=> st.need,
 
-    // 参考：game.js からの式置き換えに使えるヘルパ（未使用でもOK）
+    // 参考：game.js からの式置き換え用ヘルパ（未使用でもOK）
     expFromKill(gs, type){
       const base = {swarm:1, runner:2, tank:6}[type]||1;
       const chap = 1 + (gs.chapter-1)*0.25;
@@ -116,7 +123,7 @@
       return 10 + (gs.chapter-1)*5 + (gs.stage===10?15:0);
     },
 
-    // デバッグ用（必要ならコンソールから）
+    // デバッグ（必要ならコンソールから）
     _debugReset(){ st = { lv:1, exp:0, need:reqExp(1) }; save(); refreshUI(); }
   };
 

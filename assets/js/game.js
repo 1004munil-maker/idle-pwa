@@ -139,10 +139,10 @@ function updateRemainLabel() {
 }
 updateStageLabel();
 
-/* 07) ---------- 雷 & 判定 ---------- */
+/* 07) ---------- 雷 & 判定（基準値は Status で上書き可） ---------- */
 const lightning = {
   baseDmg: 8,
-  cooldown: 0.70,   // ★Status.initで cooldownBase に退避される
+  cooldown: 0.70,
   cooldownBase: undefined,
   range: 380,
   baseRange: undefined,
@@ -150,8 +150,20 @@ const lightning = {
   falloff: 0.85
 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
-const R_SPIRIT = 18;
-const R_ENEMY  = 13;
+
+// ★固定半径は削除し、実サイズから動的に算出
+function getHitRadii() {
+  // 精霊
+  const sr = spiritEl?.getBoundingClientRect();
+  const rSpirit = sr ? Math.max(sr.width, sr.height) * 0.5 : 20; // フォールバック20
+
+  // 代表的な敵（なければフォールバック）
+  const anyEnemy = document.querySelector('.enemy');
+  const er = anyEnemy?.getBoundingClientRect();
+  const rEnemy = er ? Math.max(er.width, er.height) * 0.5 : 16;  // フォールバック16
+
+  return { rSpirit, rEnemy };
+}
 
 /* 08) ---------- 敵タイプ/プール/配列/ID ---------- */
 const ENEMY_TYPES = {
@@ -502,16 +514,19 @@ function gameLoop(now = performance.now()) {
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
     // ---- 衝突（★フェード除去 + 被ダメ）----
-    const ec = getEnemyCenter(e);
-    const dist = Math.hypot(sc.x - ec.x, sc.y - ec.y);
-    if (dist <= (R_SPIRIT + R_ENEMY)) {
-      const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
-      addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
-      damagePlayer(hitDmg);
-      // ★ここを fade:true に変更（消えながらHPを減らす演出＆無敵化防止）
-      removeEnemyById(e.eid, { by:'collision', fade:true });
-      continue;
-    }
+    // ---- 衝突（★フェード除去 + 被ダメ）----
+const ec = getEnemyCenter(e);          // 画面座標（中心）
+const sc2 = getSpiritCenter();         // 画面座標（中心）
+const dist = Math.hypot(sc2.x - ec.x, sc2.y - ec.y);
+const { rSpirit, rEnemy } = getHitRadii();  // 実サイズ半径
+
+if (dist <= (rSpirit + rEnemy)) {
+  const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
+  addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
+  damagePlayer(hitDmg);
+  removeEnemyById(e.eid, { by:'collision', fade:true });
+  continue;
+}
 
     // ---- 突破（画面外）----
     const br = laneRect;

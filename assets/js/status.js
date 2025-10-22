@@ -14,13 +14,13 @@
     goldMaxMul:  3.00,   // ゴールド最大倍率（+200%）
   };
   const step = {
-    crit:  0.005,  // +0.5% / Lv
-    spd:   0.030,  // -30ms / Lv
-    range: 0.04,   // +4% / Lv
-    gold:  0.05,   // +5% / Lv
-  };
-  const costBase = { crit:1500, spd:2000, range:1200, gold:1800 };
-  const costK    = 1.18;
+  crit:  0.001, // +0.5% / Lv
+  spd:   0.010, // -10ms / Lv
+  range: 0.01,  // +1% / Lv
+  gold:  0.01,  // +1% / Lv
+};
+const costBase = { crit:15, spd:20, range:12, gold:18 };
+const costK    = 1.12;
 
   // 状態
   let st = load() || {
