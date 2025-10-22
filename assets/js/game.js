@@ -1,6 +1,8 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.4-clean
-   - BGMボタンは #log 内の #btn-bgm のみ（単一ソース・永続化）
+   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched)
+   - 連打/再読み込みでも Start が復活しないセッションロック（sessionStorage）
+   - init の二重実行ガード（多重 RAF/ログ重複の防止）
+   - BGMトグルの安定化（重複リスナー防止、再可視化時に同期）
    - 「はじめから」で全データとStatusも確実にリセット
    - 失敗ループ後のスポーン停止に対するウォッチドッグ強化
    - 敵の移動を微減速、クリア時に中央に CLEAR! を表示してから進む
@@ -35,6 +37,11 @@ const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
 const btnStatus = document.getElementById('btn-status');
 
+/* ========== Guards (二重初期化・再表示防止) ========== */
+let __INIT_DONE = false;
+function setStartHiddenLock(on){ try{ on ? sessionStorage.setItem('startHidden','1') : sessionStorage.removeItem('startHidden'); }catch{} }
+function hasStartHiddenLock(){ try{ return sessionStorage.getItem('startHidden') === '1'; }catch{ return false; } }
+
 /* ========== Layout cache ========== */
 let laneRect;
 function measureRects(){ if (!laneEl) return; laneRect = laneEl.getBoundingClientRect(); }
@@ -44,6 +51,7 @@ window.addEventListener('orientationchange', () => setTimeout(measureRects, 200)
 /* ========== Log ========== */
 const MAX_LOG = 50;
 function addLog(msg, kind = 'info') {
+  if (!logEl) { console.log('[LOG]', kind, msg); return; } // フォールバック
   const div = document.createElement('div');
   div.className = `log-entry ${kind}`;
   div.textContent = msg;
@@ -589,14 +597,25 @@ function resetAllProgressHard(){
 
 /* ========== Controls ========== */
 function showStartScreen() {
+  // セッション中に既に非表示なら復活させない
+  if (hasStartHiddenLock()) { hideStartScreen(); return; }
   if (hasSave()) { btnContinue && (btnContinue.disabled = false); if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。'; }
   else { btnContinue && (btnContinue.disabled = true); if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。'; }
-  startScreenEl?.setAttribute('aria-hidden', 'false'); gs.running = false;
+  startScreenEl?.setAttribute('aria-hidden', 'false');
+  if (startScreenEl) startScreenEl.style.removeProperty('display');
+  gs.running = false;
 }
-function hideStartScreen() { startScreenEl?.setAttribute('aria-hidden', 'true'); gs.running = true; gs.paused = false; measureRects(); startStageHead(); }
+function hideStartScreen() {
+  startScreenEl?.setAttribute('aria-hidden', 'true');
+  if (startScreenEl) startScreenEl.style.display = 'none'; // CSS不一致でも確実に隠す
+  gs.running = true; gs.paused = false; measureRects(); startStageHead();
+  setStartHiddenLock(true); // ← このタブの間は Start を戻さない
+}
 
-btnNew?.addEventListener('click', () => { resetAllProgressHard(); saveGame(); hideStartScreen(); });
-btnContinue?.addEventListener('click', () => {
+// クリック時にデフォルト動作を抑止して堅牢化
+btnNew?.addEventListener('click', (e) => { e.preventDefault(); resetAllProgressHard(); saveGame(); hideStartScreen(); });
+btnContinue?.addEventListener('click', (e) => {
+  e.preventDefault();
   const data = loadGame();
   if (data) {
     gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();
@@ -613,8 +632,8 @@ btnContinue?.addEventListener('click', () => {
   hideStartScreen();
 });
 
-btnResume?.addEventListener('click', () => { gs.paused = false; addLog('▶ 再開', 'dim'); });
-btnRetry ?.addEventListener('click', () => { addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
+btnResume?.addEventListener('click', (e) => { e.preventDefault(); gs.paused = false; addLog('▶ 再開', 'dim'); applyBgmForStage(); });
+btnRetry ?.addEventListener('click', (e) => { e.preventDefault(); addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
 
 setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
@@ -646,22 +665,39 @@ window.GameAPI = {
 const BGM_KEY = 'bgmEnabled';
 function bgmEnabled(){ const v = localStorage.getItem(BGM_KEY); return v == null ? true : v === '1'; }
 function setBgmEnabled(on){ try { localStorage.setItem(BGM_KEY, on ? '1' : '0'); } catch {} }
-function ensureBgmInit(){ const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night'); if (!day || !night) return; day.volume = 0.7; night.volume = 0.7; }
+function ensureBgmInit(){
+  const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night');
+  if (!day || !night) return;
+  day.volume = 0.7; night.volume = 0.7;
+  day.loop = true; night.loop = true;
+}
 async function applyBgmForStage(){
   ensureBgmInit();
   const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night');
   if (!day || !night) return;
-  if (bgmEnabled()) { if (gs.isNight) { try{ day.pause(); await night.play(); }catch{} } else { try{ night.pause(); await day.play(); }catch{} } }
-  else { try{ day.pause(); night.pause(); }catch{} }
+  try{
+    // まずは両方止めてから、片方だけ再生
+    day.pause(); night.pause();
+    if (bgmEnabled()) {
+      if (gs.isNight) { await night.play(); } else { await day.play(); }
+    }
+  }catch(e){ /* ブラウザの自動再生制限などは無視 */ }
   const btn = document.getElementById('btn-bgm');
-  if (btn){ btn.setAttribute('aria-pressed', String(bgmEnabled())); btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF'; }
+  if (btn){
+    btn.setAttribute('aria-pressed', String(bgmEnabled()));
+    btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF';
+  }
 }
 function wireBgmToggleButton(){
   const btn = document.getElementById('btn-bgm'); if (!btn) return;
+  if (btn.dataset.wired === '1') return; // 重複防止
   const syncBtn = () => { btn.setAttribute('aria-pressed', String(bgmEnabled())); btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF'; };
   syncBtn();
   btn.addEventListener('click', async () => { setBgmEnabled(!bgmEnabled()); await applyBgmForStage(); });
+  btn.dataset.wired = '1';
   window.GameAPI?.onStageChange?.(applyBgmForStage);
+  // タブ復帰時に再同期（音が止まったように見えるケース対策）
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) applyBgmForStage(); }, { once:false });
 }
 
 /* ========== Status gold pill (title area) ========== */
@@ -690,6 +726,8 @@ function mountStatusGoldPill(){
 
 /* ========== Init ========== */
 function init() {
+  if (__INIT_DONE) return;           // ← 二重呼び出し防止
+  __INIT_DONE = true;
   measureRects();
   addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
   last = performance.now();
@@ -698,7 +736,15 @@ function init() {
 window.addEventListener('load', () => {
   init();
   showStartScreen();
-  setTimeout(()=> { if (window.Status && window.GameAPI){ if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown; if (lightning.baseRange==null) lightning.baseRange = lightning.range; window.Status.init(window.GameAPI); mountStatusGoldPill(); } }, 0);
+  // Status 初期化（存在する場合のみ）
+  setTimeout(()=> {
+    if (window.Status && window.GameAPI){
+      if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown;
+      if (lightning.baseRange==null)    lightning.baseRange    = lightning.range;
+      try{ window.Status.init(window.GameAPI); }catch{}
+      mountStatusGoldPill();
+    }
+  }, 0);
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
   wireBgmToggleButton();
 });
