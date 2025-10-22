@@ -25,9 +25,9 @@
 
 /* ====== 衝突判定チューニング（必要ならここだけ触ればOK） ====== */
 const HIT_SCALE_SPIRIT = 0.1; // 精霊半径=見た目サイズ×係数（0.38〜0.46）
-const HIT_SCALE_ENEMY  = 0.12; // 敵半径   （0.34〜0.44）
+const HIT_SCALE_ENEMY  = 0.2; // 敵半径   （0.34〜0.44）
 const HIT_MARGIN       = 0;    // 取りこぼし防止マージン(1〜4)
-const ENGAGE_EXTRA     = 4;    // 押し込み開始距離 (r合計+これ)
+const ENGAGE_EXTRA     = 1;    // 押し込み開始距離 (r合計+これ)
 const PUSH_STRENGTH    = 0.10; // 押し込み強度(0.08〜0.14)
 
 /* 01) ---------- DOM参照 ---------- */
