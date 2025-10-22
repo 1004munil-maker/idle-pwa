@@ -1,18 +1,19 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携)  v6.1-num-annotated
+   Idle Lightning - game.js (EnemyDB連携) v6.2-num-annotated
    変更要約:
-   (A) windup/strike/recoil 中は毎フレーム e.vx=e.vy=0（ブルブル停止）
-   (B) recoil 終了時に座標スナップ & 速度ゼロ
-   (C) 全角スペース混入の除去（敵生成オブジェクト内の recoil 系）
-   (D) 失敗後の "停止" を回避するウォッチドッグ
+   - 近接中は毎フレーム停止＆recoil終端スナップ
+   - 押し込みの向きを修正（接触時に離す）
+   - Retryボタンのガード削除（常時動作）
+   - 失敗後に停滞したら自動再セットのウォッチドッグ
+   - ステータス強化見出しの右に囲みゴールドを表示
    ========================================================= */
 
 /* ========== (1) 当たり判定・押し込みチューニング ========== */
-const HIT_SCALE_SPIRIT = 0.42;   // 精霊半径=見た目×係数
-const HIT_SCALE_ENEMY  = 0.40;   // 敵半径=EnemyDB.size×係数
-const HIT_MARGIN       = 2;      // 取りこぼし防止
-const ENGAGE_EXTRA     = 6;      // 押し込み開始距離 (r合計+これ)
-const PUSH_STRENGTH    = 0.10;   // 押し込み力
+const HIT_SCALE_SPIRIT = 0.42;
+const HIT_SCALE_ENEMY  = 0.40;
+const HIT_MARGIN       = 2;
+const ENGAGE_EXTRA     = 6;
+const PUSH_STRENGTH    = 0.10;
 
 /* ========== (2) DOM 参照 ========== */
 const laneEl   = document.getElementById('enemy-lane');
@@ -87,7 +88,7 @@ function loadGame() {
 }
 function hasSave() { return !!localStorage.getItem(SAVE_KEY); }
 
-/* ========== (7) ゲームステート ========== */
+/* ========== (7) ゲームステート & ウォッチドッグ ========== */
 const gs = {
   floor: 1,
   chapter: 1,
@@ -98,7 +99,7 @@ const gs = {
   running: false
 };
 
-// ウォッチドッグ（(D) 停止回避用）
+// 進捗ウォッチドッグ: 失敗直後の停滞を検知してステージ再セット
 const watchdog = {
   lastProgress: performance.now(),
   lastFailAt: 0
@@ -109,10 +110,12 @@ function touchProgress(){ watchdog.lastProgress = performance.now(); }
 let gold = 0;
 let diamonds = 0;
 let dpsSmoothed = 0;
+
 function refreshCurrencies(){
   if (goldEl) goldEl.textContent = gold;
   if (diaEl)  diaEl.textContent  = diamonds;
   if (dpsEl)  dpsEl.textContent  = Math.round(dpsSmoothed);
+  mountStatusGoldPill(); // (26) ゴールドピル更新
 }
 refreshCurrencies();
 
@@ -149,7 +152,7 @@ const lightning = {
 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 
-/* ========== (11) EnemyDB 参照（フォールバックあり） ========== */
+/* ========== (11) EnemyDB 参照（フォールバック） ========== */
 const DB = (function(){
   const F = window.EnemyDB || {};
   const defs = F.defs || {
@@ -223,7 +226,7 @@ function setupStageCounters() {
   updateStageLabel();
   updateRemainLabel();
   addLog(`Stage 開始：${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight?' 🌙':''}`, 'dim');
-  touchProgress(); // (D)
+  touchProgress();
 }
 
 function pickEnemyType() {
@@ -235,7 +238,7 @@ function pickEnemyType() {
 
 let laneWidthCached = 0, laneHeightCached = 0;
 let enemySeq = 1;
-const enemies = []; // 要素：オブジェクト（下で定義）
+const enemies = [];
 
 function spawnEnemy(type = pickEnemyType()) {
   if (!laneRect || laneRect.width === 0) measureRects();
@@ -272,15 +275,14 @@ function spawnEnemy(type = pickEnemyType()) {
     t: 0,
     swayAmp: 6 + Math.random()*10,
     swayFreq: 1.0 + Math.random()*0.8,
-    // 近接攻撃ステート
     state: 'chase', // 'chase' | 'windup' | 'strike' | 'recoil'
-    st: 0,          // state timer
-    atkCool: 0,     // 攻撃クールダウン
-    // strike 中のアニメ用
+    st: 0,
+    atkCool: 0,
+    // strike
     strikeFromX: 0, strikeFromY: 0,
     strikeToX: 0,   strikeToY: 0,
     strikeHitDone: false,
-    // recoil（後退）補間用  ※全角スペース排除
+    // recoil（ASCIIで統一）
     recoilFromX: 0, recoilFromY: 0,
     recoilToX: 0,   recoilToY: 0,
   });
@@ -288,7 +290,7 @@ function spawnEnemy(type = pickEnemyType()) {
   spawnPlan.spawned++;
   spawnPlan.alive++;
   updateRemainLabel();
-  touchProgress(); // (D)
+  touchProgress();
 }
 
 function trySpawn(dt) {
@@ -364,7 +366,7 @@ function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
   enemies.splice(idx, 1);
   spawnPlan.alive = Math.max(0, spawnPlan.alive - 1);
   updateRemainLabel();
-  touchProgress(); // (D)
+  touchProgress();
 
   if (fade) {
     const keepEid = String(eid);
@@ -391,7 +393,7 @@ function damagePlayer(amount){
   }
 }
 
-/* ========== (19) 落雷攻撃（プレイヤー攻撃） ========== */
+/* ========== (19) 落雷攻撃 ========== */
 function tryAttack(dt) {
   lightning.timer -= dt;
   if (lightning.timer > 0) return;
@@ -452,7 +454,6 @@ function tryAttack(dt) {
     dmg *= lightning.falloff;
   }
 
-  // 撃破
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
@@ -474,7 +475,7 @@ function tryAttack(dt) {
 
   logAttack(used.size, dealtTotal);
   lightning.timer = lightning.cooldown;
-  touchProgress(); // (D)
+  touchProgress();
 }
 
 /* ========== (20) ゲームループ（敵AI含む） ========== */
@@ -508,22 +509,19 @@ function gameLoop(now = performance.now()) {
     }
   }
 
-  const scScr = getSpiritCenter(); // 画面座標
+  const scScr = getSpiritCenter();
   let sxLane = Math.max(0, Math.min(laneRect.width,  scScr.x - laneRect.left));
   let syLane = Math.max(0, Math.min(laneRect.height, scScr.y - laneRect.top));
 
   const rS = spiritRadius();
 
-  // ===== 敵の更新 =====
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     e.t += dt;
     e.st += dt;
 
-    // 攻撃クールダウン
     if (e.atkCool > 0) e.atkCool -= dt;
 
-    // 目標方向
     let dx = sxLane - e.x, dy = syLane - e.y;
     const dist = Math.hypot(dx, dy) || 1;
     const nx = dx / dist, ny = dy / dist;
@@ -534,46 +532,36 @@ function gameLoop(now = performance.now()) {
     const inMelee = dist <= Math.max(rr, A.range);
 
     if (e.state === 'chase') {
-      // 接近：通常移動
       const desiredVx = nx * e.speed;
       const desiredVy = ny * e.speed;
       const steer = 0.5;
       e.vx += (desiredVx - e.vx) * steer;
       e.vy += (desiredVy - e.vy) * steer;
 
-      // ふらつき
       const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
       e.x += e.vx * dt;
       e.y += (e.vy + sway * 0.8) * dt;
 
-      // 押し込み（見た目詰まり防止）
+      // ★押し込み：プレイヤーから離す方向に補正（符号修正）
       if (dist < (rr + ENGAGE_EXTRA)) {
-        e.x += nx * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
-        e.y += ny * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
+        e.x -= nx * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
+        e.y -= ny * (rr + ENGAGE_EXTRA - dist) * PUSH_STRENGTH;
       }
 
-      // 近接に入ったら windup へ（CD明け）
       if (inMelee && e.atkCool <= 0) {
         e.state = 'windup';
         e.st = 0;
-        e.vx = e.vy = 0;               // (A) 攻撃予備動作で静止
+        e.vx = e.vy = 0;
         e.el.classList.add('pose-windup');
       }
     }
     else if (e.state === 'windup') {
-      // その場で予備動作（毎フレーム静止）
-      e.vx = e.vy = 0;                 // (A)
+      e.vx = e.vy = 0; // 停止
       if (e.st >= A.windup) {
         e.strikeFromX = e.x;
         e.strikeFromY = e.y;
-
-        // 左へ突く（UIが左=前の想定）
-        e.strikeToX   = e.x - A.lunge;
+        e.strikeToX   = e.x - A.lunge; // 左へ突く
         e.strikeToY   = e.y;
-
-        // ★精霊方向へ突きたい場合は下の2行に差し替え
-        // e.strikeToX = e.x + nx * A.lunge;
-        // e.strikeToY = e.y + ny * A.lunge;
 
         e.strikeHitDone = false;
         e.state = 'strike';
@@ -583,20 +571,17 @@ function gameLoop(now = performance.now()) {
       }
     }
     else if (e.state === 'strike') {
-      // 毎フレーム静止
-      e.vx = e.vy = 0;                 // (A)
+      e.vx = e.vy = 0; // 停止
       const t = Math.min(1, e.st / A.active);
       e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
       e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
 
-      // ダメージは active 終了時に一度
       if (!e.strikeHitDone && e.st >= A.active) {
         e.strikeHitDone = true;
         const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
         addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
         damagePlayer(hitDmg);
 
-        // recoil（後退）準備
         e.recoilFromX = e.x;
         e.recoilFromY = e.y;
         e.recoilToX   = e.strikeFromX;
@@ -604,23 +589,21 @@ function gameLoop(now = performance.now()) {
 
         e.state = 'recoil';
         e.st = 0;
-        e.atkCool = A.rate;            // 次の攻撃までのクール
+        e.atkCool = A.rate;
         e.el.classList.remove('pose-strike');
         e.el.classList.add('pose-recoil');
       }
     }
     else if (e.state === 'recoil') {
-      // 後退モーション中も静止
-      e.vx = e.vy = 0;                 // (A)
-      // 後退モーション（A.recoil の間で線形補間）
+      e.vx = e.vy = 0; // 停止
       const t = Math.min(1, e.st / A.recoil);
       const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
       const ry = e.recoilFromY + (e.recoilToY - e.recoilFromY) * t;
       e.x = rx;
       e.y = ry;
 
-      // 終わったら chase へ（座標確定＆速度ゼロ）
-      if (e.st >= A.recoil) {          // (B)
+      if (e.st >= A.recoil) {
+        // スナップ & 速度ゼロ
         e.x = e.recoilToX;
         e.y = e.recoilToY;
         e.vx = 0; e.vy = 0;
@@ -630,11 +613,9 @@ function gameLoop(now = performance.now()) {
       }
     }
 
-    // 表示反映
     e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
 
-    // 画面外突破（逃げ）
-    const ec = getEnemyCenter(e); // 画面座標
+    const ec = getEnemyCenter(e);
     const br = laneRect;
     const marginX = 160, marginY = 200;
     if (ec.x < br.left - marginX || ec.x > br.right + marginX ||
@@ -647,17 +628,14 @@ function gameLoop(now = performance.now()) {
     }
   }
 
-  // プレイヤー攻撃＆スポーン
   tryAttack(dt);
   trySpawn(dt);
 
-  // ステージクリア判定
   if (spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
     nextStage();
   }
 
-  /* ===== (20.5) ウォッチドッグ: 停止回避 =====
-     条件: 走行中 & 非ポーズ & 直近に進捗がなく、敵も湧いていない */
+  // (20.5) ウォッチドッグ（停滞回復）
   const nowMs = performance.now();
   if (gs.running && !gs.paused) {
     const noEnemy = enemies.length === 0 && spawnPlan.alive === 0 && spawnPlan.spawned === 0;
@@ -716,7 +694,7 @@ function failStage() {
   gs.running = true;
   startStageHead();
   saveGame();
-  watchdog.lastFailAt = performance.now(); // (D)
+  watchdog.lastFailAt = performance.now();
 }
 
 function clearAllEnemies() {
@@ -781,12 +759,17 @@ btnContinue?.addEventListener('click', () => {
 
 btnPause?.addEventListener('click', () => { if (!gs.running) return; gs.paused = true;  addLog('⏸ 一時停止', 'dim'); });
 btnResume?.addEventListener('click',()=> { if (!gs.running) return; gs.paused = false; addLog('▶ 再開',   'dim'); });
-btnRetry?.addEventListener('click', () => { if (!gs.running) return; addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
+
+// ★Retryは常に動作（ガード削除）
+btnRetry?.addEventListener('click', () => {
+  addLog('↻ リトライ（章の頭へ）', 'alert');
+  failStage();
+});
 
 // オートセーブ
 setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
-/* ========== (23) GameAPI（外部UI/Exp/Statusから触る） ========== */
+/* ========== (23) GameAPI ========== */
 const listeners = { stageChange: new Set() };
 function emitStageChange(){ listeners.stageChange.forEach(fn=>{ try{ fn(getStageInfo()); }catch{} }); }
 function getStageInfo(){ return { floor:gs.floor, chapter:gs.chapter, stage:gs.stage, isNight:gs.isNight }; }
@@ -844,10 +827,49 @@ window.addEventListener('load', () => {
       if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown;
       if (lightning.baseRange==null)    lightning.baseRange    = lightning.range;
       window.Status.init(window.GameAPI);
+      // ステータスパネルにゴールドピル
+      mountStatusGoldPill();
     }
   }, 0);
 
   btnStatus?.addEventListener('click', ()=>{
     if (window.Status && window.GameAPI) window.Status.open(window.GameAPI);
+    // 開いた直後に見出しへ装着
+    setTimeout(mountStatusGoldPill, 0);
   });
 });
+
+/* ========== (25) ユーティリティ: テキスト一致で要素を探す ========== */
+function queryByText(root, tagSelector, contains){
+  const els = root.querySelectorAll(tagSelector);
+  for (const el of els) {
+    if ((el.textContent||'').trim().includes(contains)) return el;
+  }
+  return null;
+}
+
+/* ========== (26) ステータス強化見出しの右に囲みゴールド ========== */
+function mountStatusGoldPill(){
+  try{
+    // パネルのルート候補（Status側のDOM構造を想定しすぎない）
+    const root = document.querySelector('[data-status-root], .status, .status-modal, #status') || document.body;
+    if (!root) return;
+
+    // 「ステータス強化」を含む見出しを探す
+    const title = queryByText(root, 'h1, h2, .title, [data-title]', 'ステータス強化');
+    if (!title) return;
+
+    let pill = title.querySelector('.gold-pill');
+    if (!pill){
+      pill = document.createElement('span');
+      pill.className = 'gold-pill';
+      pill.style.cssText = `
+        margin-left:.5rem; padding:.1rem .45rem; border:1px solid rgba(255,215,0,.7);
+        border-radius:999px; font-size:.85em; white-space:nowrap;
+        background:rgba(255,215,0,.08); vertical-align:baseline; display:inline-block;
+      `;
+      title.appendChild(pill);
+    }
+    pill.textContent = `💰 ${gold.toLocaleString()}`;
+  }catch{}
+}
