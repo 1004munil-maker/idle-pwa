@@ -289,7 +289,7 @@ const ExpAPI = {
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
     const base = {swarm:1, runner:2, tank:6}[type]||1;
     const chap = 1 + (gs.chapter-1)*0.25;
-    the night= gs.isNight?1.5:1;
+    const night = gs.isNight?1.5:1;
     return Math.round(base*chap*night);
   },
   expFromStageClear(gs){
@@ -725,7 +725,7 @@ btnContinue?.addEventListener('click', (e) => {
 });
 
 btnResume?.addEventListener('click', (e) => { e.preventDefault(); gs.paused = false; addLog('▶ 再開', 'dim'); applyBgmForStage(); });
-btnRetry ?.addEventListener('click', (e) => { e.preventDefault(); addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
+btnRetry?.addEventListener('click', (e) => { e.preventDefault(); addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
 
 setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
