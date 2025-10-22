@@ -1,16 +1,24 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched)
+   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched EXT)
    - 連打/再読み込みでも Start が復活しないセッションロック（sessionStorage）
    - init の二重実行ガード（多重 RAF/ログ重複の防止）
-   - BGMトグルの安定化（重複リスナー防止、再可視化時に同期）
-   - 「はじめから」で全データとStatus/EXPも確実にリセット（localStorageワイルドカード掃除を追加）
+   - BGMトグルの安定化＋自己復帰（stalled/visibilitychange で再試行）
+   - 「はじめから」で全データと Status/EXP も確実にリセット（idleLightning* 全削除）
    - 失敗ループ後のスポーン停止に対するウォッチドッグ強化
-   - 敵の移動を微減速、クリア時に中央に CLEAR! を表示してから進む
+   - 敵は左右上下の画面外（遠方）からスポーン
+   - クリア時は中央に CLEAR! を表示→遅延して次ステージ
+   - 通常攻撃に attack.mp3 サウンド（SFX）
    ========================================================= */
 
 /* ========== Config ========== */
-const ENEMY_SPEED_MUL = 0.88;       // 少しだけ減速
-const CLEAR_PAUSE_MS  = 3000;       // クリア表示の時間
+const ENEMY_SPEED_MUL   = 0.88;  // 少しだけ減速
+const CLEAR_PAUSE_MS    = 3000;  // クリア表示の時間
+const SPAWN_OFF_X       = 280;   // 画面外スポーン距離（左右）
+const SPAWN_OFF_Y       = 260;   // 画面外スポーン距離（上下）
+const ESCAPE_MARGIN_X   = 360;   // これより外に出たら脱落扱い（X）
+const ESCAPE_MARGIN_Y   = 320;   // これより外に出たら脱落扱い（Y）
+const ATTACK_SFX_VOL    = 0.28;  // 攻撃SFXの音量
+const ATTACK_SFX_POLY   = 4;     // 同時再生用のプール数
 
 /* ========== DOM ========== */
 const laneEl   = document.getElementById('enemy-lane');
@@ -52,35 +60,23 @@ window.addEventListener('orientationchange', () => setTimeout(measureRects, 200)
 const MAX_LOG = 50;
 
 function addLog(msg, kind = 'info') {
-  // #log は毎回取り直して確実に掴む（初期キャプチャの null 問題を回避）
   const root = document.getElementById('log');
-  if (!root) {
-    // 最低限デバッグは残す（本番で邪魔なら消してOK）
-    try { console.warn('[addLog] #log not found:', msg); } catch {}
-    return;
-  }
+  if (!root) { try { console.warn('[addLog] #log not found:', msg); } catch {} return; }
 
-  // エントリー要素生成
   const div = document.createElement('div');
   div.className = `log-entry ${kind}`;
   div.textContent = msg;
 
-  // 先頭に挿入。ただし「.log-entry の先頭」の前に入れる。
   const firstEntry = root.querySelector('.log-entry');
-  if (firstEntry) {
-    root.insertBefore(div, firstEntry);
-  } else {
-    // 最初の1件目：ボタン(#btn-bgm)の直後に入れると見た目が安定
+  if (firstEntry) root.insertBefore(div, firstEntry);
+  else {
     const btn = root.querySelector('#btn-bgm');
     if (btn && btn.nextSibling) root.insertBefore(div, btn.nextSibling);
     else root.appendChild(div);
   }
 
-  // 古いログの剪定は「.log-entry」だけを数える（ボタンは消さない）
   const entries = root.querySelectorAll('.log-entry');
-  for (let i = entries.length - 1; i >= MAX_LOG; i--) {
-    entries[i].remove();
-  }
+  for (let i = entries.length - 1; i >= MAX_LOG; i--) entries[i].remove();
 }
 
 function logAttack(chainCount, totalDamage) {
@@ -212,8 +208,22 @@ function spawnEnemy(type = pickEnemyType()) {
 
   el.querySelector('.icon').textContent = def.icon || '👾';
 
-  const startX = laneWidthCached - 60 - Math.random() * 40;
-  const startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.10 + 0.80 * Math.random())));
+  // === 画面外スポーン（左右上下ランダム） ===
+  const side = (Math.random() < 0.50) ? (Math.random() < 0.85 ? 'right' : 'left') : (Math.random() < 0.55 ? 'top' : 'bottom');
+  let startX, startY;
+  if (side === 'right') {
+    startX = laneWidthCached + SPAWN_OFF_X + Math.random()*80;
+    startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.08 + 0.84 * Math.random())));
+  } else if (side === 'left') {
+    startX = -SPAWN_OFF_X - 40 - Math.random()*80;
+    startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.08 + 0.84 * Math.random())));
+  } else if (side === 'top') {
+    startX = laneWidthCached * (0.08 + 0.84*Math.random());
+    startY = -SPAWN_OFF_Y - 40 - Math.random()*80;
+  } else { // bottom
+    startX = laneWidthCached * (0.08 + 0.84*Math.random());
+    startY = laneHeightCached + SPAWN_OFF_Y + Math.random()*80;
+  }
 
   const hpMax = Math.max(1, Math.round(def.hp * hpMultiplier()));
 
@@ -225,7 +235,7 @@ function spawnEnemy(type = pickEnemyType()) {
     eid, el, def,
     x: startX, y: startY,
     vx: 0, vy: 0,
-    speed: def.speed * ENEMY_SPEED_MUL, // 速度微減速
+    speed: def.speed * ENEMY_SPEED_MUL,
     hp: hpMax, maxHp: hpMax,
     reward: def.reward, dmg: def.dmg,
     t: 0,
@@ -279,7 +289,7 @@ const ExpAPI = {
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
     const base = {swarm:1, runner:2, tank:6}[type]||1;
     const chap = 1 + (gs.chapter-1)*0.25;
-    const night= gs.isNight?1.5:1;
+    the night= gs.isNight?1.5:1;
     return Math.round(base*chap*night);
   },
   expFromStageClear(gs){
@@ -324,6 +334,35 @@ function damagePlayer(amount){
   }
 }
 
+/* ========== SFX (attack) ========== */
+const Sfx = { attackPool: [], attackIdx: 0, inited:false };
+function ensureSfxInit(){
+  if (Sfx.inited) return;
+  try {
+    // 既存の <audio id="sfx-attack"> があればそれを元にする。なければ attack.mp3。
+    let src = 'attack.mp3';
+    const el = document.getElementById('sfx-attack');
+    if (el && el.getAttribute('src')) src = el.getAttribute('src');
+
+    for (let i=0;i<ATTACK_SFX_POLY;i++){
+      const a = new Audio();
+      a.src = src;
+      a.preload = 'auto';
+      a.volume = ATTACK_SFX_VOL;
+      Sfx.attackPool.push(a);
+    }
+  } catch {}
+  Sfx.inited = true;
+}
+function playAttackSfx(){
+  if (!bgmEnabled()) return; // マスターのサウンドトグルに準拠
+  ensureSfxInit();
+  const pool = Sfx.attackPool;
+  if (!pool.length) return;
+  const a = pool[Sfx.attackIdx++ % pool.length];
+  try { a.currentTime = 0; a.play(); } catch {}
+}
+
 /* ========== Attack ========== */
 function tryAttack(dt) {
   lightning.timer -= dt;
@@ -344,6 +383,9 @@ function tryAttack(dt) {
     if (d2 <= r2) cand.push({ e, d2, ex, ey });
   }
   if (!cand.length) { lightning.timer = Math.max(0.05, lightning.cooldown*0.3); return; }
+
+  // 攻撃開始時に1回だけSFX
+  playAttackSfx();
 
   cand.sort((a,b)=>a.d2-b.d2);
   const maxHits = Math.min(lightning.chainCount + 1, cand.length);
@@ -422,23 +464,17 @@ function gameLoop(now = performance.now()) {
   dt = Math.min(dt, 0.033);
 
   try {
-    // ポーズ/非稼働でもフレーム予約は finally で必ず行う
     if (!gs.running || gs.paused) return;
 
-    // laneRect が未初期化 or 幅0 の瞬間を安全にスキップ（次フレームで再測定）
     if (!laneRect || !Number.isFinite(laneRect.width) || laneRect.width === 0) {
       measureRects();
       if (!laneRect || !Number.isFinite(laneRect.width) || laneRect.width === 0) return;
     }
 
-    // ===== ここから元のロジック =====
-
-    if (!laneRect) { measureRects(); }
-    else {
-      const r = laneEl.getBoundingClientRect();
-      if (Math.abs(r.top - laneRect.top) > 1 ||
-          Math.abs(r.height - laneRect.height) > 1 ||
-          Math.abs(r.left - laneRect.left) > 1) { laneRect = r; }
+    // レーンの変化を追従
+    const r = laneEl.getBoundingClientRect();
+    if (Math.abs(r.top - laneRect.top) > 1 || Math.abs(r.height - laneRect.height) > 1 || Math.abs(r.left - laneRect.left) > 1) {
+      laneRect = r;
     }
 
     const scScr = getSpiritCenter();
@@ -513,7 +549,7 @@ function gameLoop(now = performance.now()) {
 
       const ec = getEnemyCenter(e);
       const br = laneRect;
-      const marginX = 160, marginY = 200;
+      const marginX = ESCAPE_MARGIN_X, marginY = ESCAPE_MARGIN_Y;
       if (ec.x < br.left - marginX || ec.x > br.right + marginX || ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
         const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
         addLog(`突破（escape）：${e.def.name}（-${escDmg} HP）`, 'alert');
@@ -540,17 +576,13 @@ function gameLoop(now = performance.now()) {
       const sinceFail  = nowMs - watchdog.lastFailAt;
       const sinceProg  = nowMs - watchdog.lastProgress;
 
-      // 失敗直後の「無発生」キック（1.5秒沈黙で手動起動）
       if (sinceFail < 4000 && spawnPlan.spawned === 0 && sinceStart > 1500) {
         addLog('🧯 リカバリ: スポーンを起動', 'dim');
-        // カウンタ未初期化の可能性に備えて再セット
         if (spawnPlan.total === 0) setupStageCounters();
-        // 1体だけ強制スポーンで起動確認
         spawnEnemy();
         touchProgress();
       }
 
-      // 既存ウォッチドッグ
       if ( (noEnemy && notSpawning && sinceStart > 1200 && sinceFail > 600 && sinceProg > 2000) ||
            (sinceProg > 6000) ) {
         addLog('🛠 再起動ガード: ステージを再セット', 'dim');
@@ -559,7 +591,6 @@ function gameLoop(now = performance.now()) {
       }
     }
   } catch (err) {
-    // 例外で止まらないようにログだけ出して継続
     try { console.error('[gameLoop error]', err); } catch {}
     addLog('⚠️ 内部エラーを検出。次フレームへ復帰します', 'alert');
   } finally {
@@ -615,7 +646,7 @@ function failStage() {
   gs.paused = false; gs.running = true;
   last = performance.now();
 
-  startStageHead(); // ← 二重初期化を避ける
+  startStageHead();
   saveGame();
 
   watchdog.lastFailAt = performance.now();
@@ -637,18 +668,17 @@ function resetAllProgressHard(){
 
   clearAllEnemies(); enemySeq = 1; updateRemainLabel();
 
-  // 外部モジュールの初期化（存在すれば）
   try { 
     if (window.Exp && typeof window.Exp.reset === 'function') {
       window.Exp.reset(); 
     } else {
-      __expResetRequested = true; // 後で再試行
+      __expResetRequested = true;
     }
   } catch {}
 
   try { window.Status?.reset?.(); } catch {}
 
-  // 既知キー + ワイルドカード掃除：idleLightning* を全消し（このゲームのキーのみ）
+  // idleLightning* を全削除（このゲーム専用キーの掃除）
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i) || '';
@@ -661,7 +691,6 @@ function resetAllProgressHard(){
 
 /* ========== Controls ========== */
 function showStartScreen() {
-  // セッション中に既に非表示なら復活させない
   if (hasStartHiddenLock()) { hideStartScreen(); return; }
   if (hasSave()) { btnContinue && (btnContinue.disabled = false); if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。'; }
   else { btnContinue && (btnContinue.disabled = true); if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。'; }
@@ -671,12 +700,11 @@ function showStartScreen() {
 }
 function hideStartScreen() {
   startScreenEl?.setAttribute('aria-hidden', 'true');
-  if (startScreenEl) startScreenEl.style.display = 'none'; // CSS不一致でも確実に隠す
+  if (startScreenEl) startScreenEl.style.display = 'none';
   gs.running = true; gs.paused = false; measureRects(); startStageHead();
-  setStartHiddenLock(true); // ← このタブの間は Start を戻さない
+  setStartHiddenLock(true);
 }
 
-// クリック時にデフォルト動作を抑止して堅牢化
 btnNew?.addEventListener('click', (e) => { e.preventDefault(); resetAllProgressHard(); saveGame(); hideStartScreen(); });
 btnContinue?.addEventListener('click', (e) => {
   e.preventDefault();
@@ -736,7 +764,7 @@ function ensureBgmInit(){
   day.loop = true; night.loop = true;
 }
 
-// これで既存の applyBgmForStage を置き換え
+// 既存の applyBgmForStage を置き換え
 function isAudioPlaying(a){ try{ return a && !a.paused && a.currentTime > 0 && !a.ended; }catch{return false;} }
 
 let __bgmRetryT = null;
@@ -758,11 +786,10 @@ async function applyBgmForStage(){
     return;
   }
 
-  // 既に正しい曲が鳴っているなら何もしない（切り替え時だけ操作）
   try{
     if (other && !other.paused) other.pause();
     if (!isAudioPlaying(desired)) {
-      await desired.play(); // ここで拒否されても下の自己復帰で再トライ
+      await desired.play(); // 拒否されても自己復帰で再トライ
     }
   }catch(e){ /* 自動再生制限などは無視して後でリトライ */ }
 
@@ -770,7 +797,7 @@ async function applyBgmForStage(){
   if (btn){ btn.setAttribute('aria-pressed','true'); btn.textContent = '♪ BGM ON'; }
 }
 
-// 一度だけ自己復帰リスナーを配線（多重配線防止）
+// 一度だけ自己復帰リスナーを配線
 function wireBgmSelfRecovery(){
   const day   = document.getElementById('bgm-day');
   const night = document.getElementById('bgm-night');
@@ -787,13 +814,12 @@ function wireBgmSelfRecovery(){
 
 function wireBgmToggleButton(){
   const btn = document.getElementById('btn-bgm'); if (!btn) return;
-  if (btn.dataset.wired === '1') return; // 重複防止
+  if (btn.dataset.wired === '1') return;
   const syncBtn = () => { btn.setAttribute('aria-pressed', String(bgmEnabled())); btn.textContent = bgmEnabled() ? '♪ BGM ON' : '♪ BGM OFF'; };
   syncBtn();
   btn.addEventListener('click', async () => { setBgmEnabled(!bgmEnabled()); await applyBgmForStage(); });
   btn.dataset.wired = '1';
   window.GameAPI?.onStageChange?.(applyBgmForStage);
-  // タブ復帰時に再同期（音が止まったように見えるケース対策）
   document.addEventListener('visibilitychange', () => { if (!document.hidden) applyBgmForStage(); }, { once:false });
 }
 
@@ -823,7 +849,7 @@ function mountStatusGoldPill(){
 
 /* ========== Init ========== */
 function init() {
-  if (__INIT_DONE) return;           // ← 二重呼び出し防止
+  if (__INIT_DONE) return;
   __INIT_DONE = true;
   measureRects();
   addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
@@ -833,7 +859,6 @@ function init() {
 window.addEventListener('load', () => {
   init();
   showStartScreen();
-  // Status 初期化（存在する場合のみ）
   setTimeout(()=> {
     if (window.Status && window.GameAPI){
       if (lightning.cooldownBase==null) lightning.cooldownBase = lightning.cooldown;
@@ -841,7 +866,6 @@ window.addEventListener('load', () => {
       try{ window.Status.init(window.GameAPI); }catch{}
       mountStatusGoldPill();
     }
-    // 遅延読み込み対策: EXPのハードリセット再試行
     if (__expResetRequested && window.Exp && typeof window.Exp.reset === 'function'){
       try { window.Exp.reset(); } catch {}
       __expResetRequested = false;
@@ -849,5 +873,5 @@ window.addEventListener('load', () => {
   }, 0);
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
   wireBgmToggleButton();
-  wireBgmSelfRecovery(); // ← 自己復帰を配線
+  wireBgmSelfRecovery();
 });
