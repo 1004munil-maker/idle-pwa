@@ -59,7 +59,14 @@
       <button id="btn-status">ステータス</button>
       <button class="btn-rate">NONE</button>
       <button class="btn-range">NONE</button>
-      <button id="btn-pause">装備</button>
+  <!-- index.html のメニュー内 -->
+<button id="btn-gear">装備</button>
+
+<script>
+  document.getElementById('btn-gear')?.addEventListener('click', () => {
+    window.location.href = './gear.html';  // gear.html に移動
+  });
+</script>
       <button id="btn-resume">宝物</button>
       <button id="btn-retry">リトライ</button>
     </section>
