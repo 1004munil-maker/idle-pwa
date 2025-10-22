@@ -3,7 +3,7 @@
    - 連打/再読み込みでも Start が復活しないセッションロック（sessionStorage）
    - init の二重実行ガード（多重 RAF/ログ重複の防止）
    - BGMトグルの安定化（重複リスナー防止、再可視化時に同期）
-   - 「はじめから」で全データとStatusも確実にリセット
+   - 「はじめから」で全データとStatus/EXPも確実にリセット（localStorageワイルドカード掃除を追加）
    - 失敗ループ後のスポーン停止に対するウォッチドッグ強化
    - 敵の移動を微減速、クリア時に中央に CLEAR! を表示してから進む
    ========================================================= */
@@ -625,6 +625,8 @@ function failStage() {
 function clearAllEnemies(){ while (enemies.length) { const { eid } = enemies[enemies.length - 1]; removeEnemyById(eid, { by:'clear', fade:false }); } }
 
 /* ========== New Game: hard reset ========== */
+let __expResetRequested = false; // Expモジュール遅延読込への保険
+
 function resetAllProgressHard(){
   try { localStorage.removeItem(SAVE_KEY); } catch {}
 
@@ -635,14 +637,23 @@ function resetAllProgressHard(){
 
   clearAllEnemies(); enemySeq = 1; updateRemainLabel();
 
-  // 外部モジュールの初期化（あれば）
-  try { window.Exp?.reset?.(); } catch {}
+  // 外部モジュールの初期化（存在すれば）
+  try { 
+    if (window.Exp && typeof window.Exp.reset === 'function') {
+      window.Exp.reset(); 
+    } else {
+      __expResetRequested = true; // 後で再試行
+    }
+  } catch {}
+
   try { window.Status?.reset?.(); } catch {}
 
-  // よく使うキー接頭辞をパージ（装備は今回はスキップ可）
+  // 既知キー + ワイルドカード掃除：idleLightning* を全消し（このゲームのキーのみ）
   try {
-    const toZap = [ 'idleLightningSaveV63', 'idleLightningSaveV64', 'idleLightningStatusV1' ];
-    for (const k of toZap) localStorage.removeItem(k);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i) || '';
+      if (k.startsWith('idleLightning')) localStorage.removeItem(k);
+    }
   } catch {}
 
   refreshCurrencies(); updateStageLabel();
@@ -829,6 +840,11 @@ window.addEventListener('load', () => {
       if (lightning.baseRange==null)    lightning.baseRange    = lightning.range;
       try{ window.Status.init(window.GameAPI); }catch{}
       mountStatusGoldPill();
+    }
+    // 遅延読み込み対策: EXPのハードリセット再試行
+    if (__expResetRequested && window.Exp && typeof window.Exp.reset === 'function'){
+      try { window.Exp.reset(); } catch {}
+      __expResetRequested = false;
     }
   }, 0);
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
