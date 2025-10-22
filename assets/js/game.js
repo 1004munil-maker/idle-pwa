@@ -414,128 +414,157 @@ function getEnemyCenter(e){ return centerScreen(e.el); }
 function enemyRadius(e){ const size = (e.def?.size) || 28; return Math.max(10, size * 0.40); }
 function spiritRadius(){ const sr = spiritEl.getBoundingClientRect(); return Math.max(sr.width, sr.height) * 0.42 || 16; }
 
+// 置換版 gameLoop（例外が出ても止まらない）
 function gameLoop(now = performance.now()) {
-  let dt = (now - last) / 1000; last = now;
+  let dt = (now - last) / 1000; 
+  last = now;
   if (!Number.isFinite(dt) || dt <= 0) dt = 0.016;
   dt = Math.min(dt, 0.033);
 
-  if (!gs.running || gs.paused) { requestAnimationFrame(gameLoop); return; }
+  try {
+    // ポーズ/非稼働でもフレーム予約は finally で必ず行う
+    if (!gs.running || gs.paused) return;
 
-  if (!laneRect) { measureRects(); }
-  else {
-    const r = laneEl.getBoundingClientRect();
-    if (Math.abs(r.top - laneRect.top) > 1 ||
-        Math.abs(r.height - laneRect.height) > 1 ||
-        Math.abs(r.left - laneRect.left) > 1) { laneRect = r; }
-  }
-
-  const scScr = getSpiritCenter();
-  let sxLane = Math.max(0, Math.min(laneRect.width,  scScr.x - laneRect.left));
-  let syLane = Math.max(0, Math.min(laneRect.height, scScr.y - laneRect.top));
-
-  const rS = spiritRadius();
-
-  for (let i = enemies.length - 1; i >= 0; i--) {
-    const e = enemies[i];
-    e.t += dt; e.st += dt;
-    if (e.atkCool > 0) e.atkCool -= dt;
-
-    let dx = sxLane - e.x, dy = syLane - e.y;
-    const dist = Math.hypot(dx, dy) || 1;
-    const nx = dx / dist, ny = dy / dist;
-
-    const A  = e.def.atk;
-    const rE = enemyRadius(e);
-    const rr = rS + rE + 2;
-    const inMelee = dist <= Math.max(rr, A.range);
-
-    if (e.state === 'chase') {
-      const desiredVx = nx * e.speed, desiredVy = ny * e.speed;
-      const steer = 0.5;
-      e.vx += (desiredVx - e.vx) * steer;
-      e.vy += (desiredVy - e.vy) * steer;
-      const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
-      e.x += e.vx * dt;
-      e.y += (e.vy + sway * 0.8) * dt;
-
-      if (dist < (rr + 6)) { e.x -= nx * (rr + 6 - dist) * 0.10; e.y -= ny * (rr + 6 - dist) * 0.10; }
-
-      if (inMelee && e.atkCool <= 0) { e.state = 'windup'; e.st = 0; e.vx = e.vy = 0; e.el.classList.add('pose-windup'); }
+    // laneRect が未初期化 or 幅0 の瞬間を安全にスキップ（次フレームで再測定）
+    if (!laneRect || !Number.isFinite(laneRect.width) || laneRect.width === 0) {
+      measureRects();
+      if (!laneRect || !Number.isFinite(laneRect.width) || laneRect.width === 0) return;
     }
-    else if (e.state === 'windup') {
-      e.vx = e.vy = 0;
-      if (e.st >= A.windup) {
-        e.strikeFromX = e.x; e.strikeFromY = e.y; e.strikeToX = e.x - A.lunge; e.strikeToY = e.y;
-        e.strikeHitDone = false; e.state = 'strike'; e.st = 0; e.el.classList.remove('pose-windup'); e.el.classList.add('pose-strike');
+
+    // ===== ここから元のロジック =====
+
+    if (!laneRect) { measureRects(); }
+    else {
+      const r = laneEl.getBoundingClientRect();
+      if (Math.abs(r.top - laneRect.top) > 1 ||
+          Math.abs(r.height - laneRect.height) > 1 ||
+          Math.abs(r.left - laneRect.left) > 1) { laneRect = r; }
+    }
+
+    const scScr = getSpiritCenter();
+    let sxLane = Math.max(0, Math.min(laneRect.width,  scScr.x - laneRect.left));
+    let syLane = Math.max(0, Math.min(laneRect.height, scScr.y - laneRect.top));
+
+    const rS = spiritRadius();
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      e.t += dt; e.st += dt;
+      if (e.atkCool > 0) e.atkCool -= dt;
+
+      let dx = sxLane - e.x, dy = syLane - e.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const nx = dx / dist, ny = dy / dist;
+
+      const A  = e.def.atk;
+      const rE = enemyRadius(e);
+      const rr = rS + rE + 2;
+      const inMelee = dist <= Math.max(rr, A.range);
+
+      if (e.state === 'chase') {
+        const desiredVx = nx * e.speed, desiredVy = ny * e.speed;
+        const steer = 0.5;
+        e.vx += (desiredVx - e.vx) * steer;
+        e.vy += (desiredVy - e.vy) * steer;
+        const sway = Math.sin(e.t * (2 * Math.PI * e.swayFreq)) * e.swayAmp;
+        e.x += e.vx * dt;
+        e.y += (e.vy + sway * 0.8) * dt;
+
+        if (dist < (rr + 6)) { e.x -= nx * (rr + 6 - dist) * 0.10; e.y -= ny * (rr + 6 - dist) * 0.10; }
+
+        if (inMelee && e.atkCool <= 0) { e.state = 'windup'; e.st = 0; e.vx = e.vy = 0; e.el.classList.add('pose-windup'); }
+      }
+      else if (e.state === 'windup') {
+        e.vx = e.vy = 0;
+        if (e.st >= A.windup) {
+          e.strikeFromX = e.x; e.strikeFromY = e.y; e.strikeToX = e.x - A.lunge; e.strikeToY = e.y;
+          e.strikeHitDone = false; e.state = 'strike'; e.st = 0; e.el.classList.remove('pose-windup'); e.el.classList.add('pose-strike');
+        }
+      }
+      else if (e.state === 'strike') {
+        e.vx = e.vy = 0;
+        const t = Math.min(1, e.st / A.active);
+        e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
+        e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
+
+        if (!e.strikeHitDone && e.st >= A.active) {
+          e.strikeHitDone = true;
+          const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
+          addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
+          damagePlayer(hitDmg);
+
+          e.recoilFromX = e.x; e.recoilFromY = e.y; e.recoilToX = e.strikeFromX; e.recoilToY = e.strikeFromY;
+          e.state = 'recoil'; e.st = 0; e.atkCool = A.rate; e.el.classList.remove('pose-strike'); e.el.classList.add('pose-recoil');
+        }
+      }
+      else if (e.state === 'recoil') {
+        e.vx = e.vy = 0;
+        const t = Math.min(1, e.st / A.recoil);
+        const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
+        const ry = e.recoilFromY + (e.recoilToY - e.recoilFromY) * t;
+        e.x = rx; e.y = ry;
+        if (e.st >= A.recoil) {
+          e.x = e.recoilToX; e.y = e.recoilToY; e.vx = 0; e.vy = 0;
+          e.state = 'chase'; e.st = 0; e.el.classList.remove('pose-recoil');
+        }
+      }
+
+      e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
+
+      const ec = getEnemyCenter(e);
+      const br = laneRect;
+      const marginX = 160, marginY = 200;
+      if (ec.x < br.left - marginX || ec.x > br.right + marginX || ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
+        const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
+        addLog(`突破（escape）：${e.def.name}（-${escDmg} HP）`, 'alert');
+        damagePlayer(escDmg);
+        removeEnemyById(e.eid, { by:'escape', fade:false });
+        continue;
       }
     }
-    else if (e.state === 'strike') {
-      e.vx = e.vy = 0;
-      const t = Math.min(1, e.st / A.active);
-      e.x = e.strikeFromX + (e.strikeToX - e.strikeFromX) * t;
-      e.y = e.strikeFromY + (e.strikeToY - e.strikeFromY) * t;
 
-      if (!e.strikeHitDone && e.st >= A.active) {
-        e.strikeHitDone = true;
-        const hitDmg = Number.isFinite(e.dmg) ? e.dmg : (Number.isFinite(e.def?.dmg) ? e.def.dmg : 5);
-        addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
-        damagePlayer(hitDmg);
+    tryAttack(dt);
+    trySpawn(dt);
 
-        e.recoilFromX = e.x; e.recoilFromY = e.y; e.recoilToX = e.strikeFromX; e.recoilToY = e.strikeFromY;
-        e.state = 'recoil'; e.st = 0; e.atkCool = A.rate; e.el.classList.remove('pose-strike'); e.el.classList.add('pose-recoil');
+    // クリア検知（遅延して遷移）
+    if (!clearPending && spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
+      showClearThenAdvance();
+    }
+
+    // Watchdog（停滞対策 + 失敗直後キック）
+    const nowMs = performance.now();
+    if (gs.running && !gs.paused) {
+      const noEnemy = enemies.length === 0 && spawnPlan.alive === 0;
+      const notSpawning = spawnPlan.spawned === 0 && spawnPlan.total > 0;
+      const sinceStart = nowMs - watchdog.lastStageStartAt;
+      const sinceFail  = nowMs - watchdog.lastFailAt;
+      const sinceProg  = nowMs - watchdog.lastProgress;
+
+      // 失敗直後の「無発生」キック（1.5秒沈黙で手動起動）
+      if (sinceFail < 4000 && spawnPlan.spawned === 0 && sinceStart > 1500) {
+        addLog('🧯 リカバリ: スポーンを起動', 'dim');
+        // カウンタ未初期化の可能性に備えて再セット
+        if (spawnPlan.total === 0) setupStageCounters();
+        // 1体だけ強制スポーンで起動確認
+        spawnEnemy();
+        touchProgress();
+      }
+
+      // 既存ウォッチドッグ
+      if ( (noEnemy && notSpawning && sinceStart > 1200 && sinceFail > 600 && sinceProg > 2000) ||
+           (sinceProg > 6000) ) {
+        addLog('🛠 再起動ガード: ステージを再セット', 'dim');
+        startStageHead();
+        touchProgress();
       }
     }
-    else if (e.state === 'recoil') {
-      e.vx = e.vy = 0;
-      const t = Math.min(1, e.st / A.recoil);
-      const rx = e.recoilFromX + (e.recoilToX - e.recoilFromX) * t;
-      const ry = e.recoilFromY + (e.recoilToY - e.recoilFromY) * t;
-      e.x = rx; e.y = ry;
-      if (e.st >= A.recoil) {
-        e.x = e.recoilToX; e.y = e.recoilToY; e.vx = 0; e.vy = 0;
-        e.state = 'chase'; e.st = 0; e.el.classList.remove('pose-recoil');
-      }
-    }
-
-    e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
-
-    const ec = getEnemyCenter(e);
-    const br = laneRect;
-    const marginX = 160, marginY = 200;
-    if (ec.x < br.left - marginX || ec.x > br.right + marginX || ec.y < br.top  - marginY || ec.y > br.bottom + marginY) {
-      const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
-      addLog(`突破（escape）：${e.def.name}（-${escDmg} HP）`, 'alert');
-      damagePlayer(escDmg);
-      removeEnemyById(e.eid, { by:'escape', fade:false });
-      continue;
-    }
+  } catch (err) {
+    // 例外で止まらないようにログだけ出して継続
+    try { console.error('[gameLoop error]', err); } catch {}
+    addLog('⚠️ 内部エラーを検出。次フレームへ復帰します', 'alert');
+  } finally {
+    requestAnimationFrame(gameLoop);
   }
-
-  tryAttack(dt);
-  trySpawn(dt);
-
-  // クリア検知（遅延して遷移）
-  if (!clearPending && spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
-    showClearThenAdvance();
-  }
-
-  // Watchdog（停滞対策を少し広めの条件で）
-  const nowMs = performance.now();
-  if (gs.running && !gs.paused) {
-    const noEnemy = enemies.length === 0 && spawnPlan.alive === 0;
-    const notSpawning = spawnPlan.spawned === 0 && spawnPlan.total > 0;
-    const sinceStart = nowMs - watchdog.lastStageStartAt;
-    const sinceFail  = nowMs - watchdog.lastFailAt;
-    const sinceProg  = nowMs - watchdog.lastProgress;
-    if ( (noEnemy && notSpawning && sinceStart > 1200 && sinceFail > 600 && sinceProg > 2000) ||
-         (sinceProg > 6000) ) {
-      addLog('🛠 再起動ガード: ステージを再セット', 'dim');
-      startStageHead();
-      touchProgress();
-    }
-  }
-
-  requestAnimationFrame(gameLoop);
 }
 
 /* ========== Stage flow ========== */
