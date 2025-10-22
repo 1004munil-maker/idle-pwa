@@ -1,20 +1,26 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+  <!-- (1) 基本メタ -->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>雷精霊を育てよ！ | Idle Lightning</title>
 
+  <!-- (2) PWA -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#0f1115" />
 
+  <!-- (2.1) 画像プリロード（体感改善） -->
   <link rel="preload" as="image" href="./assets/images/spirit.png" />
   <link rel="preload" as="image" href="./assets/images/bg.png" />
 
+  <!-- (3) スタイル -->
   <link rel="stylesheet" href="./style.css?v=ultra-v5-hp" />
 </head>
 <body>
+  <!-- (4) 18:9 のゲーム枠 -->
   <div class="game-container">
+    <!-- (4-1) HUD（右上） -->
     <div class="hud">
       <div class="hud-row">
         <div class="chip gold"><span class="label">Gold</span><span id="gold">0</span></div>
@@ -23,17 +29,20 @@
         <div class="chip chain"><span class="label">Chain</span><span id="chain">2/15</span></div>
         <div class="chip"><span class="label">Stage</span><span id="stageLabel">1-1 / 1F</span></div>
         <div class="chip"><span class="label">残り</span><span id="remain">--</span></div>
-        <!-- Lv / EXP -->
+
+        <!-- レベル / EXP -->
         <span id="levelChip" class="chip">Lv 1</span>
         <div style="width:120px;height:6px;background:#233040;border-radius:4px;overflow:hidden;border:1px solid #3a4a63">
           <div id="expBar" style="height:100%;width:0%;background:linear-gradient(90deg,#78ffa8,#32e6ff)"></div>
         </div>
         <small id="expLabel" style="opacity:.8">0 / 20</small>
+
         <!-- HP -->
         <div class="chip"><span class="label">HP</span><span id="playerHpLabel">100/100</span></div>
       </div>
     </div>
 
+    <!-- (4-2) バトルエリア -->
     <section class="battlefield">
       <div class="spirit-wrap">
         <img src="./assets/images/spirit.png" alt="精霊" class="spirit" width="32" height="32" />
@@ -42,17 +51,20 @@
       <div id="enemy-lane" class="enemy-lane"></div>
     </section>
 
+    <!-- (4-3) ログ -->
     <section id="log" class="log" aria-live="polite"></section>
 
+    <!-- (4-4) メニュー -->
     <section class="menu">
       <button id="btn-status">ステータス</button>
       <button class="btn-rate">NONE</button>
       <button class="btn-range">NONE</button>
-      <button id="btn-equip">装備</button>
-      <button id="btn-treasure">宝物</button>
+      <button id="btn-pause">装備</button>
+      <button id="btn-resume">宝物</button>
       <button id="btn-retry">リトライ</button>
     </section>
 
+    <!-- (4-5) スタート画面 -->
     <div id="start-screen" aria-hidden="false">
       <div class="start-card">
         <h1 class="title">⚡ 雷精霊を育てよ！</h1>
@@ -68,29 +80,27 @@
     </div>
   </div>
 
-  <!-- ▼▼▼ 読み込み順が重要 ▼▼▼ -->
-  <script src="./assets/js/exp.js?v=1"></script>
-  <script src="./assets/js/status.js?v=1"></script>
-  <script src="./assets/js/game.js?v=prog-v2-hp"></script>
-  <script src="./assets/js/upgrades.js?v=proto-01"></script>
+  <!-- (5) スクリプト（順序重要！） -->
+  <script src="./assets/js/game.js?v=prog-v5.3"></script>
+  <script src="./assets/js/exp.js?v=proto-01"></script>
+  <script src="./assets/js/status.js?v=proto-01"></script>
 
-  <!-- 初期化 -->
+  <!-- (6) 初期化 -->
   <script>
     window.addEventListener('load', () => {
-      // EXP 初期化（UI同期）
-      if (window.Exp) {
-        window.Exp.init(window.GameAPI);
+      // Exp / Status を GameAPI に接続
+      if (window.GameAPI && window.Exp) {
+        window.Exp.init(window.GameAPI);               // ← これが無いとLv上がらない
       }
-      // ステータス初期化 & ボタンでオーバーレイ表示
-      if (window.Status && window.GameAPI) {
+      if (window.GameAPI && window.Status) {
         window.Status.init(window.GameAPI);
-        document.getElementById('btn-status')?.addEventListener('click', () => {
-          window.Status.open(window.GameAPI);
-        });
+        document.getElementById('btn-status')
+          ?.addEventListener('click', () => window.Status.open(window.GameAPI));
       }
     });
   </script>
 
+  <!-- (7) Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
