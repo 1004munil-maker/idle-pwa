@@ -3,7 +3,11 @@
 // - ゴールド支払いで強化、即時セーブ、即時反映
 // - window.Status API を公開
 
-(function(){
+(function(){/* ==== 追加: 内部状態をゼロにする ==== */
+function hardResetState(){
+  st = { lvCrit:0, lvSpd:0, lvRange:0, lvGold:0, baseCooldown:0.70 };
+  save();
+}
   const SAVE_KEY = 'idleLightningStatusV1';
 
   // 基準値＆上限
