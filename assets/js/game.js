@@ -512,7 +512,7 @@ function gameLoop(now = performance.now()) {
     const rEnemy  = Math.max(er.width, er.height) * 0.5 || 14;
     const rSpirit = Math.max(sr.width, sr.height) * 0.5 || 18;
 
-    if (dist <= (rSpirit + rEnemy)) {
+    if (dist <= (rSpirit + rEnemy+2)) {
       const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
       addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
       damagePlayer(hitDmg);
