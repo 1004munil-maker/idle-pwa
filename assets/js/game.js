@@ -1,14 +1,15 @@
 /* =========================================================
-   Idle Lightning - game.js (Progression v4 Stable)
+   Idle Lightning - game.js (Progression v5 Stable, EID-safe)
    ---------------------------------------------------------
-   含まれる機能：
    - ステージ/章/階（30章でHP係数×1.5）
    - 10面は夜：敵HP×2、10%でダイヤ
    - 自分HP：衝突/突破で減少、0で章頭リトライ
-   - 敵3種アイコン：🦂 swarm / 🦅 runner / 🦏 tank（HPを前版の約半分）
+   - 敵3種アイコン：🦂 swarm / 🦅 runner / 🦏 tank（HPは以前の約半分）
    - ビーム連鎖攻撃（距離減衰）
    - 安定化：画面中心ベースの衝突/攻撃、Rectリフレッシュ、突破余白
-   - 拡張用 GameAPI（upgrades.js など外部から操作・購買可能）
+   - 一意敵ID（eid）で安全な生成/削除/再利用（消える/止まる系の根治）
+   - HUD：残り数（remain）対応
+   - 拡張用 GameAPI（upgrades.js など外部から操作可能）
    ========================================================= */
 
 /* (1) ---------- DOM参照 ---------- */
@@ -18,11 +19,13 @@ const goldEl   = document.getElementById('gold');
 const diaEl    = document.getElementById('diamond');
 const dpsEl    = document.getElementById('dps');
 const chainEl  = document.getElementById('chain');
-const spiritEl = document.querySelector('.spirit');
+const stageLabelEl = document.getElementById('stageLabel');
+const remainEl = document.getElementById('remain'); // 残り数（HTMLにあれば自動表示）
+const spiritEl = document.querySelector('.spirit'); // <img class="spirit"> or 文字⚡
+
 const playerHpBarEl   = document.getElementById('player-hp');
 const playerHpFillEl  = playerHpBarEl?.querySelector('.fill');
 const playerHpLabelEl = document.getElementById('playerHpLabel');
-const stageLabelEl    = document.getElementById('stageLabel');
 
 // スタート画面
 const startScreenEl  = document.getElementById('start-screen');
@@ -56,7 +59,7 @@ function logAttack(chainCount, totalDamage) {
 }
 
 /* (4) ---------- セーブ/ロード ---------- */
-const SAVE_KEY = 'idleLightningSaveV4';
+const SAVE_KEY = 'idleLightningSaveV5';
 function saveGame() {
   const data = {
     ts: Date.now(),
@@ -116,6 +119,11 @@ updatePlayerHpUI();
 function updateStageLabel() {
   if (stageLabelEl) stageLabelEl.textContent = `${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight ? ' 🌙' : ''}`;
 }
+function updateRemainLabel() {
+  if (!remainEl) return;
+  const left = Math.max(0, spawnPlan.total - spawnPlan.spawned) + spawnPlan.alive;
+  remainEl.textContent = String(left);
+}
 updateStageLabel();
 
 /* (7) ---------- 雷 & 判定 ---------- */
@@ -127,11 +135,11 @@ const lightning = {
   chainCount: 2,     // =3体ヒット
   falloff: 0.85
 };
-chainEl.textContent = `${lightning.chainCount}/15`;
+chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 const R_SPIRIT = 18; // 画面座標の半径
 const R_ENEMY  = 13;
 
-/* (8) ---------- 敵タイプ/プール/配列 ---------- */
+/* (8) ---------- 敵タイプ/プール/配列/ID ---------- */
 const ENEMY_TYPES = {
   swarm:  { speed:120, hp: 20, reward: 1, dmg:  8 }, // 🦂
   runner: { speed:170, hp: 14, reward: 1, dmg: 10 }, // 🦅
@@ -149,7 +157,7 @@ function pickEnemyType() {
   return 'swarm';
 }
 
-// 敵プール
+// 敵プール（DOM再利用）
 const enemyPool = [];
 function getEnemyEl() {
   const el = enemyPool.pop();
@@ -162,7 +170,10 @@ function getEnemyEl() {
   return e;
 }
 function releaseEnemyEl(el) { el.remove(); enemyPool.push(el); }
-const enemies = [];  // {el,type,x,y,vx,vy,speed,hp,maxHp,reward,dmg,t,swayAmp,swayFreq}
+
+// 敵リスト（eid付）
+const enemies = [];  // {eid,el,type,x,y,vx,vy,speed,hp,maxHp,reward,dmg,t,swayAmp,swayFreq}
+let enemySeq = 1;
 
 /* (9) ---------- ステージ・係数 ---------- */
 function stageTotalCount(chapter, stage) {
@@ -176,15 +187,18 @@ const NIGHT_DIAMOND_RATE = 0.10;
 // ステージカウンタ
 let spawnPlan = { total: 0, spawned: 0, alive: 0 };
 
-/* (10) ---------- スポーン制御 ---------- */
+/* (10) ---------- スポーン制御（EID付与） ---------- */
 let laneWidthCached = 0, laneHeightCached = 0;
 function spawnEnemy(type = pickEnemyType()) {
-  if (!laneRect) measureRects();
+  if (!laneRect || laneRect.width === 0) measureRects();
   laneWidthCached  = laneRect.width;
   laneHeightCached = laneRect.height;
 
   const t  = ENEMY_TYPES[type];
   const el = getEnemyEl();
+  const eid = enemySeq++;
+  el.dataset.eid = String(eid);
+  el.dataset.alive = "1";
   laneEl.appendChild(el);
 
   // アイコン保証
@@ -208,9 +222,9 @@ function spawnEnemy(type = pickEnemyType()) {
   el.querySelector('.hp').style.width = '100%';
   el.setAttribute('data-hp', hpMax);
 
-  // 配列登録
+  // リスト登録
   enemies.push({
-    el, type,
+    eid, el, type,
     x: startX, y: startY,
     vx: 0, vy: 0,
     speed: t.speed,
@@ -223,6 +237,7 @@ function spawnEnemy(type = pickEnemyType()) {
 
   spawnPlan.spawned++;
   spawnPlan.alive++;
+  updateRemainLabel();
 }
 
 // ディレイ調整
@@ -257,8 +272,8 @@ function spawnBeam(x1, y1, x2, y2, life = 0.12) {
   setTimeout(() => { el.classList.remove('fade'); releaseBeamEl(el); }, (life * 1000) | 0);
 }
 
-/* (=) ---------- ヘルパ（画面中心 & 距離二乗 & プレイヤー被ダメ） ---------- */
-// ※ (11) の直後、(12) の前
+/* (=) ---------- ヘルパ ---------- */
+// ※ (11) の直後
 function centerScreen(el) {
   const r = el.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -267,12 +282,41 @@ function dist2(ax, ay, bx, by) {
   const dx = ax - bx, dy = ay - by;
   return dx * dx + dy * dy;
 }
-function damagePlayer(amount) {
+// 安全な敵削除（id基準で配列/DOM/カウンタ同期）
+function removeEnemyById(eid, {by='unknown', fade=false} = {}) {
+  const idx = enemies.findIndex(o => o.eid === eid);
+  if (idx === -1) return;
+  const e = enemies[idx];
+  enemies.splice(idx, 1);
+  spawnPlan.alive = Math.max(0, spawnPlan.alive - 1);
+  updateRemainLabel();
+
+  // 破壊ログなど用途ごとに分岐したいなら by を利用
+  if (fade) {
+    const keepEid = String(eid);
+    e.el.classList.add('dead');
+    // ★ ここが重要：フェード完了時点でも同じ個体かを確認
+    setTimeout(() => {
+      if (e.el.dataset.eid === keepEid && e.el.dataset.alive === "1") {
+        e.el.dataset.alive = "0";
+        releaseEnemyEl(e.el);
+      } else {
+        // 別個体に再利用されていたら触らない
+      }
+    }, 220);
+  } else {
+    e.el.dataset.alive = "0";
+    releaseEnemyEl(e.el);
+  }
+}
+
+// ★ プレイヤーにダメージ（衝突/突破で使用）
+function damagePlayer(amount){
   playerHp = Math.max(0, playerHp - (Number.isFinite(amount) ? amount : 0));
   updatePlayerHpUI();
   if (playerHp <= 0) {
     addLog('💥 HPが0になった…章の初めからリトライ！', 'alert');
-    failStage();
+    failStage(); // 章の頭からやり直し
   }
 }
 
@@ -310,12 +354,12 @@ function tryAttack(dt) {
   // 1本目：⚡ → 最も近い敵（candのex/eyを使う）
   const first = cand[0];
   spawnBeam(sx, sy, first.ex, first.ey);
-  used.add(first.e);
+  used.add(first.e.eid);
 
   let prevX = first.ex, prevY = first.ey;
 
   for (let i = 0; i < maxHits; i++) {
-    const pick = (i === 0) ? first : cand.find(o => !used.has(o.e));
+    const pick = (i === 0) ? first : cand.find(o => !used.has(o.e.eid));
     if (!pick) break;
 
     if (i > 0) spawnBeam(prevX, prevY, pick.ex, pick.ey);
@@ -325,18 +369,19 @@ function tryAttack(dt) {
     dealtTotal += Math.max(0, dmg);
 
     const ratio = Math.max(0, pick.e.hp / pick.e.maxHp);
-    pick.e.el.querySelector('.hp').style.width = (ratio * 100).toFixed(1) + '%';
+    const bar = pick.e.el.querySelector('.hp');
+    if (bar) bar.style.width = (ratio * 100).toFixed(1) + '%';
     pick.e.el.setAttribute('data-hp', Math.max(0, Math.round(pick.e.hp)));
 
     pick.e.el.classList.add('hit');
     setTimeout(()=>pick.e.el.classList.remove('hit'), 80);
 
-    used.add(pick.e);
+    used.add(pick.e.eid);
     prevX = pick.ex; prevY = pick.ey;
     dmg *= lightning.falloff;
   }
 
-  // 撃破処理
+  // 撃破処理（ここも eid 経由で安全に）
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
@@ -345,10 +390,7 @@ function tryAttack(dt) {
         addLog('💎 ダイヤを獲得！', 'gain');
       }
       gold += e.reward; goldEl.textContent = gold;
-      e.el.classList.add('dead');
-      setTimeout(()=>releaseEnemyEl(e.el), 220);
-      enemies.splice(i, 1);
-      spawnPlan.alive--;
+      removeEnemyById(e.eid, { by:'beam', fade:true });
     }
   }
 
@@ -435,10 +477,7 @@ function gameLoop(now = performance.now()) {
       const hitDmg = Number.isFinite(e.dmg) ? e.dmg : 5;
       addLog(`⚠️ 被弾：${e.type}（-${hitDmg} HP）`, 'alert');
       damagePlayer(hitDmg);
-      // 敵は消す
-      releaseEnemyEl(e.el);
-      enemies.splice(i, 1);
-      spawnPlan.alive--;
+      removeEnemyById(e.eid, { by:'collision', fade:false });
       continue;
     }
 
@@ -450,9 +489,7 @@ function gameLoop(now = performance.now()) {
       const escDmg = Math.ceil((Number.isFinite(e.dmg) ? e.dmg : 5) * 0.5);
       addLog(`突破（escape）：${e.type}（-${escDmg} HP）`, 'alert');
       damagePlayer(escDmg);
-      releaseEnemyEl(e.el);
-      enemies.splice(i, 1);
-      spawnPlan.alive--;
+      removeEnemyById(e.eid, { by:'escape', fade:false });
       continue;
     }
   }
@@ -478,6 +515,7 @@ function setupStageCounters() {
   spawnPlan.alive   = 0;
   spawnTimer = 0;
   updateStageLabel();
+  updateRemainLabel();
   addLog(`Stage 開始：${gs.chapter}-${gs.stage} / ${gs.floor}F${gs.isNight?' 🌙':''}`, 'dim');
 }
 
@@ -487,6 +525,7 @@ function startStageHead() {
   // 章頭でHP回復
   playerHp = playerHpMax;
   updatePlayerHpUI();
+  measureRects();
 }
 
 function nextStage() {
@@ -524,11 +563,11 @@ function failStage() {
 }
 
 function clearAllEnemies() {
-  for (let i = enemies.length - 1; i >= 0; i--) {
-    releaseEnemyEl(enemies[i].el);
-    enemies.splice(i, 1);
+  // 配列の個体をIDで安全に全削除
+  while (enemies.length) {
+    const { eid } = enemies[enemies.length - 1];
+    removeEnemyById(eid, { by:'clear', fade:false });
   }
-  spawnPlan.alive = 0;
 }
 
 /* (15) ---------- スタート画面 & 一時停止/再開/リトライ ---------- */
@@ -579,7 +618,7 @@ btnContinue?.addEventListener('click', () => {
       lightning.cooldown  = data.lightning.cooldown  ?? lightning.cooldown;
       lightning.range     = data.lightning.range     ?? lightning.range;
       lightning.chainCount= data.lightning.chainCount?? lightning.chainCount;
-      chainEl.textContent = `${lightning.chainCount}/15`;
+      chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
     }
   }
   hideStartScreen();
@@ -611,7 +650,7 @@ window.GameAPI = {
   setBaseDmg: (v)=>{ lightning.baseDmg = Math.max(1, v); saveGame(); },
   setCooldown: (v)=>{ lightning.cooldown = Math.max(0.2, v); saveGame(); },
   setRange: (v)=>{ lightning.range = Math.max(60, v); saveGame(); },
-  setChain: (v)=>{ lightning.chainCount = Math.max(0, Math.min(14, v)); chainEl.textContent = `${lightning.chainCount}/15`; saveGame(); },
+  setChain: (v)=>{ lightning.chainCount = Math.max(0, Math.min(14, v)); chainEl && (chainEl.textContent = `${lightning.chainCount}/15`); saveGame(); },
 
   // プレイヤー
   getPlayerHp: ()=>({ hp:playerHp, max:playerHpMax }),
@@ -623,8 +662,9 @@ window.GameAPI = {
   onStageChange: (fn)=>{ listeners.stageChange.add(fn); },
   offStageChange:(fn)=>{ listeners.stageChange.delete(fn); },
 
-  // ログ
+  // 便宜
   addLog,
+  updateRemainLabel,
 };
 
 // ステージ遷移時に通知
@@ -634,6 +674,7 @@ const _failStage = failStage;
 failStage = function(){ _failStage(); emitStageChange(); };
 
 /* (17) ---------- 初期化 ---------- */
+let last;
 function init() {
   measureRects();
   addLog('タイトル待機中：「はじめから／つづきから」を選んでください', 'dim');
