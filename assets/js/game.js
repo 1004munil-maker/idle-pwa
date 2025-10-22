@@ -1,24 +1,24 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched EXT)
-   - 連打/再読み込みでも Start が復活しないセッションロック（sessionStorage）
-   - init の二重実行ガード（多重 RAF/ログ重複の防止）
+   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched EXT2)
+   - 二重 init ガード / セッションロック
    - BGMトグルの安定化＋自己復帰（stalled/visibilitychange で再試行）
    - 「はじめから」で全データと Status/EXP も確実にリセット（idleLightning* 全削除）
    - 失敗ループ後のスポーン停止に対するウォッチドッグ強化
-   - 敵は左右上下の画面外（遠方）からスポーン
+   - 敵は右側の画面外（遠方）からのみスポーン
    - クリア時は中央に CLEAR! を表示→遅延して次ステージ
-   - 通常攻撃に attack.mp3 サウンド（SFX）
+   - 通常攻撃に attack.mp3 サウンド（SFX）＋ 初回ユーザー操作でアンロック
    ========================================================= */
 
 /* ========== Config ========== */
 const ENEMY_SPEED_MUL   = 0.88;  // 少しだけ減速
 const CLEAR_PAUSE_MS    = 3000;  // クリア表示の時間
-const SPAWN_OFF_X       = 280;   // 画面外スポーン距離（左右）
-const SPAWN_OFF_Y       = 260;   // 画面外スポーン距離（上下）
-const ESCAPE_MARGIN_X   = 360;   // これより外に出たら脱落扱い（X）
+const SPAWN_OFF_X       = 360;   // 画面右外スポーン距離（大きいほど遠い）
+const SPAWN_OFF_Y       = 260;   // （上下は安全のために残すが使用しない）
+const ESCAPE_MARGIN_X   = 420;   // これより外に出たら脱落扱い（X）
 const ESCAPE_MARGIN_Y   = 320;   // これより外に出たら脱落扱い（Y）
 const ATTACK_SFX_VOL    = 0.28;  // 攻撃SFXの音量
 const ATTACK_SFX_POLY   = 4;     // 同時再生用のプール数
+const SFX_FOLLOWS_BGM   = true;  // true: BGMトグルと連動してSFXもミュート
 
 /* ========== DOM ========== */
 const laneEl   = document.getElementById('enemy-lane');
@@ -149,7 +149,7 @@ const DB = (function(){
   };
   const weights = F.weights || (() => ([ { type:'swarm', w:0.60 }, { type:'runner', w:0.25 }, { type:'tank', w:0.15 } ]));
   const chapterHpMul = F.chapterHpMul || (chapter => 1 + (chapter-1)*0.15);
-  const nightHpMul   = F.nightHpMul   || (isNight => isNight? 1.8 : 1.0);
+  const nightHpMul   = F.nightHpMul   || (isNight => isNight? 1.5 : 1.0);
   return { defs, weights, chapterHpMul, nightHpMul };
 })();
 
@@ -208,22 +208,9 @@ function spawnEnemy(type = pickEnemyType()) {
 
   el.querySelector('.icon').textContent = def.icon || '👾';
 
-  // === 画面外スポーン（左右上下ランダム） ===
-  const side = (Math.random() < 0.50) ? (Math.random() < 0.85 ? 'right' : 'left') : (Math.random() < 0.55 ? 'top' : 'bottom');
-  let startX, startY;
-  if (side === 'right') {
-    startX = laneWidthCached + SPAWN_OFF_X + Math.random()*80;
-    startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.08 + 0.84 * Math.random())));
-  } else if (side === 'left') {
-    startX = -SPAWN_OFF_X - 40 - Math.random()*80;
-    startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.08 + 0.84 * Math.random())));
-  } else if (side === 'top') {
-    startX = laneWidthCached * (0.08 + 0.84*Math.random());
-    startY = -SPAWN_OFF_Y - 40 - Math.random()*80;
-  } else { // bottom
-    startX = laneWidthCached * (0.08 + 0.84*Math.random());
-    startY = laneHeightCached + SPAWN_OFF_Y + Math.random()*80;
-  }
+  // === 画面右外スポーン（遠方固定） ===
+  const startX = laneWidthCached + SPAWN_OFF_X + 40 + Math.random() * 80;
+  const startY = Math.max(16, Math.min(laneHeightCached - 16, laneHeightCached * (0.08 + 0.84 * Math.random())));
 
   const hpMax = Math.max(1, Math.round(def.hp * hpMultiplier()));
 
@@ -289,7 +276,7 @@ const ExpAPI = {
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
     const base = {swarm:1, runner:2, tank:6}[type]||1;
     const chap = 1 + (gs.chapter-1)*0.25;
-    const night = gs.isNight?1.5:1;
+    const night= gs.isNight?1.5:1;
     return Math.round(base*chap*night);
   },
   expFromStageClear(gs){
@@ -336,17 +323,14 @@ function damagePlayer(amount){
 
 /* ========== SFX (attack) ========== */
 const Sfx = { attackPool: [], attackIdx: 0, inited:false };
+let __sfxUnlocked = false;
+
 function ensureSfxInit(){
   if (Sfx.inited) return;
   try {
-    // 既存の <audio id="sfx-attack"> があればそれを元にする。なければ attack.mp3。
-    let src = 'attack.mp3';
-    const el = document.getElementById('sfx-attack');
-    if (el && el.getAttribute('src')) src = el.getAttribute('src');
-
+    let src = document.getElementById('sfx-attack')?.getAttribute('src') || './assets/audio/attack.mp3';
     for (let i=0;i<ATTACK_SFX_POLY;i++){
-      const a = new Audio();
-      a.src = src;
+      const a = new Audio(src);
       a.preload = 'auto';
       a.volume = ATTACK_SFX_VOL;
       Sfx.attackPool.push(a);
@@ -354,8 +338,34 @@ function ensureSfxInit(){
   } catch {}
   Sfx.inited = true;
 }
+
+function unlockSfx(){
+  if (__sfxUnlocked) return;
+  ensureSfxInit();
+  const a = Sfx.attackPool[0];
+  if (!a) return;
+  try {
+    const prev = a.volume;
+    a.volume = 0.0001;
+    const p = a.play();
+    if (p && typeof p.then === 'function'){
+      p.then(()=>{ a.pause(); a.currentTime = 0; a.volume = prev; __sfxUnlocked = true; }).catch(()=>{});
+    } else {
+      a.pause(); a.currentTime = 0; a.volume = prev; __sfxUnlocked = true;
+    }
+  } catch {}
+}
+
+// 初回ユーザー操作でアンロック
+['pointerdown','touchstart','keydown','click'].forEach(ev => {
+  document.addEventListener(ev, unlockSfx, { once:true, passive:true });
+});
+btnNew?.addEventListener('click', unlockSfx);
+btnContinue?.addEventListener('click', unlockSfx);
+btnResume?.addEventListener('click', unlockSfx);
+
 function playAttackSfx(){
-  if (!bgmEnabled()) return; // マスターのサウンドトグルに準拠
+  if (SFX_FOLLOWS_BGM && !bgmEnabled()) return;
   ensureSfxInit();
   const pool = Sfx.attackPool;
   if (!pool.length) return;
@@ -688,46 +698,6 @@ function resetAllProgressHard(){
 
   refreshCurrencies(); updateStageLabel();
 }
-
-/* ========== Controls ========== */
-function showStartScreen() {
-  if (hasStartHiddenLock()) { hideStartScreen(); return; }
-  if (hasSave()) { btnContinue && (btnContinue.disabled = false); if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。'; }
-  else { btnContinue && (btnContinue.disabled = true); if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。'; }
-  startScreenEl?.setAttribute('aria-hidden', 'false');
-  if (startScreenEl) startScreenEl.style.removeProperty('display');
-  gs.running = false;
-}
-function hideStartScreen() {
-  startScreenEl?.setAttribute('aria-hidden', 'true');
-  if (startScreenEl) startScreenEl.style.display = 'none';
-  gs.running = true; gs.paused = false; measureRects(); startStageHead();
-  setStartHiddenLock(true);
-}
-
-btnNew?.addEventListener('click', (e) => { e.preventDefault(); resetAllProgressHard(); saveGame(); hideStartScreen(); });
-btnContinue?.addEventListener('click', (e) => {
-  e.preventDefault();
-  const data = loadGame();
-  if (data) {
-    gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();
-    gs.floor = data.floor ?? 1; gs.chapter = data.chapter ?? 1; gs.stage = data.stage ?? 1; gs.isNight = !!data.isNight; gs.hpScale = data.hpScale ?? 1.0;
-    playerHpMax = data.playerHpMax ?? 100; playerHp = data.playerHp ?? playerHpMax; updatePlayerHpUI();
-    if (data.lightning) {
-      lightning.baseDmg   = data.lightning.baseDmg   ?? lightning.baseDmg;
-      lightning.cooldown  = data.lightning.cooldown  ?? lightning.cooldown;
-      lightning.range     = data.lightning.range     ?? lightning.range;
-      lightning.chainCount= data.lightning.chainCount?? lightning.chainCount;
-      chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
-    }
-  }
-  hideStartScreen();
-});
-
-btnResume?.addEventListener('click', (e) => { e.preventDefault(); gs.paused = false; addLog('▶ 再開', 'dim'); applyBgmForStage(); });
-btnRetry?.addEventListener('click', (e) => { e.preventDefault(); addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
-
-setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
 /* ========== GameAPI ========== */
 const listeners = { stageChange: new Set() };
