@@ -141,7 +141,7 @@ updateStageLabel();
 
 /* ========== Lightning ========== */
 // ★ 基本射程はここ（初期値を変えたいなら range を変更）
-const lightning = { baseDmg: 8, cooldown: 0.70, cooldownBase: undefined, range: 380, baseRange: undefined, chainCount: 2, falloff: 0.85, timer: 0 };
+const lightning = { baseDmg: 8, cooldown: 2.00, cooldownBase: undefined, range: 160, baseRange: undefined, chainCount: 2, falloff: 0.85, timer: 0 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 
 /* ========== EnemyDB ========== */
