@@ -2,82 +2,217 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
   <title>装備 | Idle Lightning</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.webmanifest" />
 
-  <!-- Styles -->
-  <link rel="stylesheet" href="./assets/css/gear.css?v=1" />
+  <!-- Optional: 既存の共通CSSがあれば -->
+  <link rel="stylesheet" href="./style.css" />
 
-  <!-- Preload (images optional) -->
-  <link rel="preload" as="audio" href="./assets/audio/upg.mp3" />
-  <link rel="preload" as="audio" href="./assets/audio/success.bgm" />
-  <link rel="preload" as="audio" href="./assets/audio/success.mp3" />
-  <link rel="preload" as="audio" href="./assets/audio/failed.mp3" />
+  <style>
+    :root{
+      --bg:#0f1115;
+      --fg:#e5e7eb;
+      --dim:#94a3b8;
+      --chip:#111827;
+      --br:12px;
+      --gap:10px;
+      --bar-h:52px;
+      --toolbar-h:66px;
+    }
+    /* ===== 全画面レイアウト（スマホ安全） ===== */
+    html,body{height:100%; background:var(--bg); color:var(--fg);}
+    body{margin:0; overflow:hidden; -webkit-text-size-adjust:100%;}
+    .page{
+      position:fixed; inset:0;
+      display:flex; flex-direction:column;
+      min-height:100dvh; height:100svh;
+      background:var(--bg) url(./assets/images/bg.png) center/cover fixed no-repeat;
+    }
+    .appbar{
+      position:fixed; left:0; right:0; top:0;
+      height:var(--bar-h);
+      display:flex; align-items:center; gap:8px;
+      padding:0 12px; padding-top:calc(env(safe-area-inset-top));
+      background:linear-gradient(180deg, rgba(15,17,21,.92), rgba(15,17,21,.70));
+      backdrop-filter: blur(6px);
+      border-bottom:1px solid #1f2937;
+      z-index:10;
+    }
+    .appbar .title{font-weight:800; letter-spacing:.02em;}
+    .appbar .spacer{flex:1;}
+    .chip{background:var(--chip); border:1px solid #263042; padding:.28rem .6rem; border-radius:999px; font-size:12px; color:var(--fg); white-space:nowrap;}
+    .btn{
+      appearance:none; border:1px solid #1f2937; background:#111827; color:#e5e7eb;
+      padding:.55rem .8rem; border-radius:10px; font-weight:700; letter-spacing:.02em;
+    }
+    .btn.ghost{background:transparent;}
+    .btn.primary{background:linear-gradient(#374151,#1f2937);}
+    .btn.red{background:linear-gradient(#7f1d1d,#991b1b); border-color:#7f1d1d;}
+    .btn.blue{background:linear-gradient(#1e3a8a,#1e40af); border-color:#1e3a8a;}
+    .btn:disabled{opacity:.5;}
+
+    /* スクロール領域（中央だけスクロール） */
+    .content{
+      flex:1; overflow:auto; -webkit-overflow-scrolling:touch;
+      padding: calc(var(--bar-h) + 8px) 12px calc(var(--toolbar-h) + env(safe-area-inset-bottom) + 12px);
+    }
+
+    /* 装備中バー（横並び） */
+    #equippedBar{
+      display:flex; gap:10px; overflow:auto; -webkit-overflow-scrolling:touch;
+      padding:8px 2px 2px;
+    }
+    .slot{
+      min-width:160px; min-height:110px; border:1px dashed #334155; border-radius:12px;
+      display:flex; align-items:center; justify-content:center; color:#94a3b8; background:rgba(17,24,39,.6);
+    }
+    .slot.filled{ border-style:solid; background:linear-gradient(180deg,rgba(17,24,39,.8),rgba(17,24,39,.55)); }
+
+    /* インベントリ */
+    #inv{
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+      gap:10px; margin-top:12px;
+    }
+    .card{
+      position:relative; border:1px solid #334155; border-radius:12px; background:rgba(17,24,39,.7);
+      padding:10px; box-shadow:0 8px 20px rgba(0,0,0,.18);
+    }
+    .row{display:flex; align-items:center;}
+    .space{justify-content:space-between;}
+    .gap{gap:8px;}
+    .badge{display:inline-block; min-width:28px; text-align:center; color:#111; font-weight:900; border-radius:6px; padding:.1rem .4rem;}
+    .tag{display:inline-block; background:#0b1220; border:1px solid #263042; border-radius:8px; padding:.15rem .45rem; font-size:12px; color:#cbd5e1;}
+    .pickBox{position:absolute; left:8px; top:8px;}
+    .pick{transform:scale(1.2);}
+    .wname{font-weight:800; letter-spacing:.02em;}
+    .infoBtn{position:absolute; right:8px; bottom:8px; width:28px; height:28px; border-radius:999px; border:1px solid #1f2937; background:#0b1220; color:#e5e7eb;}
+    .infoBubble{
+      position:fixed; z-index:1000; background:#fff; color:#111; border:2px solid #000; border-radius:12px; padding:10px;
+      box-shadow:0 18px 40px rgba(0,0,0,.3);
+    }
+
+    /* 下部ツールバー（固定） */
+    .toolbar{
+      position:fixed; left:0; right:0; bottom:0;
+      padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+      background:linear-gradient(180deg, rgba(15,17,21,.75), rgba(15,17,21,.95));
+      border-top:1px solid #1f2937; backdrop-filter: blur(6px);
+      display:grid; grid-template-columns:repeat(5,1fr); gap:8px;
+      z-index:20; min-height:var(--toolbar-h);
+    }
+    .toolbar .btn{width:100%}
+
+    .toast{
+      position:fixed; left:50%; bottom:calc(var(--toolbar-h) + env(safe-area-inset-bottom) + 12px);
+      transform:translateX(-50%); display:none;
+      background:#0b1220; border:1px solid #263042; color:#e5e7eb; padding:.5rem .8rem; border-radius:10px;
+      z-index:30; white-space:pre-wrap; box-shadow:0 10px 24px rgba(0,0,0,.35);
+    }
+    .toast.ok{border-color:#22c55e;}
+    .toast.warn{border-color:#ef4444;}
+
+    /* フローティング（ガチャなど） */
+    .actions{
+      display:flex; gap:8px; flex-wrap:wrap; margin:12px 2px 6px;
+    }
+
+    /* 飛ぶアニメ（装着） */
+    .flyCard{
+      position:fixed; z-index:50; pointer-events:none;
+      transition:transform .36s ease, opacity .36s ease;
+      box-shadow:0 12px 30px rgba(0,0,0,.25);
+    }
+  </style>
 </head>
 <body>
-  <header class="topbar">
-    <a class="back" href="./index.html" aria-label="戻る">← 戻る</a>
-    <h1>装備</h1>
-    <div class="wallet">💎 <span id="dia">0</span></div>
-  </header>
+  <div class="page gear-page" role="application" aria-label="装備">
+    <!-- ヘッダー -->
+    <header class="appbar">
+      <button id="backBtn" class="btn ghost" aria-label="戻る">← 戻る</button>
+      <div class="title">装備</div>
+      <div class="spacer"></div>
+      <span class="chip">💎 <span id="dia">0</span></span>
+    </header>
 
-  <main class="wrap">
-    <!-- 装備中（2スロ） -->
-    <section class="panel">
-      <h2>装備中</h2>
-      <div id="equippedBar" class="equipped">
-        <!-- JSで埋め込み -->
-      </div>
-      <small class="hint">※ スロットをタップで外せます</small>
-    </section>
+    <!-- 中央スクロール -->
+    <main class="content" id="gearMain">
+      <!-- 装備中 2スロ -->
+      <section>
+        <h2 class="sr-only">装備中</h2>
+        <div id="equippedBar" aria-live="polite">
+          <!-- JSが埋め込む -->
+        </div>
+      </section>
 
-    <!-- 操作 -->
-    <section class="panel actions">
-      <div class="row">
-        <button id="gacha1"  class="btn">🎲 ガチャ ×1（10💎）</button>
-        <button id="gacha10" class="btn">🎲 ガチャ ×10（100💎）</button>
-        <button id="fuseBtn" class="btn">✨ 合成（10個）</button>
-      </div>
-      <div class="row">
-        <button id="equipBtn"        class="btn">⚡ 装着</button>
-        <button id="enhanceBtn"      class="btn accent">🛠 強化</button>
-        <button id="autoDismantleBtn" class="btn warn">🔧 分解</button>
-      </div>
-      <div class="row">
-        <button id="selectAllBtn" class="btn ghost">全選択/解除</button>
-        <span class="selcount">選択中：<b id="selCount">0</b> 件</span>
-      </div>
-    </section>
+      <!-- アクション（ガチャ / 一括） -->
+      <section class="actions">
+        <button id="gacha1" class="btn blue">🎲 ガチャ ×1</button>
+        <button id="gacha10" class="btn blue">🎲 ガチャ ×10</button>
 
-    <!-- 在庫 -->
-    <section class="panel">
-      <h2>在庫</h2>
-      <div id="inv" class="grid"></div>
-    </section>
-  </main>
+        <button id="selectAllBtn" class="btn">全選択</button>
+        <button id="autoDismantleBtn" class="btn">分解</button>
 
-  <!-- トースト -->
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+        <span class="chip">選択：<b id="selCount">0</b></span>
+      </section>
 
-  <!-- 強化オーバーレイ -->
-  <div id="enhOverlay" class="enh-overlay" hidden>
-    <div class="box">
-      <div class="spinner"></div>
-      <div class="title">許可中……</div>
-      <div class="desc">強化処理を実行しています</div>
-    </div>
+      <!-- インベントリ -->
+      <section>
+        <h2 class="sr-only">インベントリ</h2>
+        <div id="inv" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <!-- 下ツールバー（固定） -->
+    <nav class="toolbar">
+      <button id="equipBtn" class="btn primary">装着</button>
+      <button id="enhanceBtn" class="btn primary">強化</button>
+      <button id="fuseBtn" class="btn">合成(10)</button>
+      <button id="autoDismantleBtn2" class="btn">分解</button>
+      <button id="toGameBtn" class="btn ghost">ゲームへ</button>
+    </nav>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <!-- 強化SFX（将来の拡張用。今のJSはダミーSFX） -->
+    <audio id="sfx-upg" src="./assets/audio/upg.mp3" preload="auto"></audio>
+    <audio id="sfx-success" src="./assets/audio/success.bgm" preload="auto"></audio>
+    <audio id="sfx-failed" src="./assets/audio/failed.mp3" preload="auto"></audio>
   </div>
 
-  <!-- 音が出ないとき -->
-  <button id="unlockAudioBtn" class="unlock" hidden>🔊 タップで音声を有効化</button>
+  <!-- 装備JS（モジュール） -->
+  <!-- 置き場所に合わせてパス調整。spirit_gear.js が ./shared.js を import します -->
+  <script type="module" src="./spirit_gear.js"></script>
 
-  <!-- SFX -->
-  <audio id="sfx-upg"     src="./assets/audio/upg.mp3" preload="auto"></audio>
-  <audio id="sfx-success" src="./assets/audio/success.bgm" preload="auto"></audio>
-  <audio id="sfx-success-alt" src="./assets/audio/success.mp3" preload="auto"></audio>
-  <audio id="sfx-failed"  src="./assets/audio/failed.mp3" preload="auto"></audio>
+  <script>
+    // ====== 端末向け最適化：戻る/ゲームへ ======
+    (function(){
+      const toGame = () => { 
+        // 履歴があれば戻る。なければ index.html へ
+        if (history.length > 1) history.back();
+        else location.href = './index.html';
+      };
+      document.getElementById('backBtn')?.addEventListener('click', toGame);
+      document.getElementById('toGameBtn')?.addEventListener('click', toGame);
+      // Safariのアドレスバー高さ変動に負けないよう、初回にスクロール位置を0へ
+      window.addEventListener('load', () => { setTimeout(()=>window.scrollTo(0,0), 0); });
+    })();
 
-  <!-- Scripts -->
-  <script type="module" src="./assets/js/spirit_gear.js?v=1"></script>
+    // ====== 同一IDの分解ボタンを束ねる（上/下どちらでもOK） ======
+    (function mirrorDismantle(){
+      const a = document.getElementById('autoDismantleBtn');
+      const b = document.getElementById('autoDismantleBtn2');
+      if (a && b) b.addEventListener('click', ()=> a.click());
+    })();
+
+    // ====== Service Worker（無いなら無視） ======
+    if ('serviceWorker' in navigator) {
+      // 既に登録済みならOK。無ければ登録試行。失敗は無視。
+      navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
+    }
+  </script>
 </body>
 </html>
