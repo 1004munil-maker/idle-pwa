@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <title>装備 | Idle Lightning</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="./assets/css/gear.css?v=1" />
+
+  <!-- Preload (images optional) -->
+  <link rel="preload" as="audio" href="./assets/audio/upg.mp3" />
+  <link rel="preload" as="audio" href="./assets/audio/success.bgm" />
+  <link rel="preload" as="audio" href="./assets/audio/success.mp3" />
+  <link rel="preload" as="audio" href="./assets/audio/failed.mp3" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="./index.html" aria-label="戻る">← 戻る</a>
+    <h1>装備</h1>
+    <div class="wallet">💎 <span id="dia">0</span></div>
+  </header>
+
+  <main class="wrap">
+    <!-- 装備中（2スロ） -->
+    <section class="panel">
+      <h2>装備中</h2>
+      <div id="equippedBar" class="equipped">
+        <!-- JSで埋め込み -->
+      </div>
+      <small class="hint">※ スロットをタップで外せます</small>
+    </section>
+
+    <!-- 操作 -->
+    <section class="panel actions">
+      <div class="row">
+        <button id="gacha1"  class="btn">🎲 ガチャ ×1（10💎）</button>
+        <button id="gacha10" class="btn">🎲 ガチャ ×10（100💎）</button>
+        <button id="fuseBtn" class="btn">✨ 合成（10個）</button>
+      </div>
+      <div class="row">
+        <button id="equipBtn"        class="btn">⚡ 装着</button>
+        <button id="enhanceBtn"      class="btn accent">🛠 強化</button>
+        <button id="autoDismantleBtn" class="btn warn">🔧 分解</button>
+      </div>
+      <div class="row">
+        <button id="selectAllBtn" class="btn ghost">全選択/解除</button>
+        <span class="selcount">選択中：<b id="selCount">0</b> 件</span>
+      </div>
+    </section>
+
+    <!-- 在庫 -->
+    <section class="panel">
+      <h2>在庫</h2>
+      <div id="inv" class="grid"></div>
+    </section>
+  </main>
+
+  <!-- トースト -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- 強化オーバーレイ -->
+  <div id="enhOverlay" class="enh-overlay" hidden>
+    <div class="box">
+      <div class="spinner"></div>
+      <div class="title">許可中……</div>
+      <div class="desc">強化処理を実行しています</div>
+    </div>
+  </div>
+
+  <!-- 音が出ないとき -->
+  <button id="unlockAudioBtn" class="unlock" hidden>🔊 タップで音声を有効化</button>
+
+  <!-- SFX -->
+  <audio id="sfx-upg"     src="./assets/audio/upg.mp3" preload="auto"></audio>
+  <audio id="sfx-success" src="./assets/audio/success.bgm" preload="auto"></audio>
+  <audio id="sfx-success-alt" src="./assets/audio/success.mp3" preload="auto"></audio>
+  <audio id="sfx-failed"  src="./assets/audio/failed.mp3" preload="auto"></audio>
+
+  <!-- Scripts -->
+  <script type="module" src="./assets/js/spirit_gear.js?v=1"></script>
+</body>
+</html>

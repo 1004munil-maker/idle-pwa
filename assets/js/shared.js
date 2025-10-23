@@ -17,6 +17,15 @@ function load() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) state = JSON.parse(raw);
+    // 片道同期：ゲーム側セーブからダイヤを取り込む（高い方を反映）
+    try {
+      const mainRaw = localStorage.getItem('idleLightningSaveV64');
+      if (mainRaw) {
+        const main = JSON.parse(mainRaw);
+        const mainDia = main?.diamonds|0;
+        if ((state.currency.diamonds|0) < mainDia) state.currency.diamonds = mainDia;
+      }
+    } catch {}
   } catch (e) { console.warn("gear load failed", e); }
 }
 function saveNow() {
@@ -35,6 +44,10 @@ function commit(mutator) {
 
 // -------- ID生成 --------
 function nextItemId() { const id = state.nextItemId++; saveNow(); return id; }
+function makeCode(len=8){ // 固有コード
+  const s = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return s.slice(0, len).toUpperCase();
+}
 
 // -------- インベントリ操作 --------
 function addToInventory(item) { state.inventory.push(item); }
@@ -63,7 +76,7 @@ const tierStyle = {
   D: { color: "#374151" }  // 黒
 };
 
-// -------- ガチャ確率 --------
+// -------- ガチャ確率（%）--------
 const GACHA_RATE = { S: 0.1, A: 1, B: 4.9, C: 14, D: 80 };
 
 // -------- オプションロール範囲 --------
@@ -75,12 +88,15 @@ const ROLL_RANGES = {
   D: { picks: 1, critDmg:[1,5],   atkPct:[1,3],   autoMs:[5,15],   skillCd:[1,3],  special:false },
 };
 
-// -------- SFX（ダミーでOK） --------
+// -------- SFX（ダミー/実体は spirit_gear.js で上書き） --------
 const sfx = {
   gacha: ()=>console.log("🎲 gacha!"),
   equip: ()=>console.log("⚡ equip!"),
   fuse:  ()=>console.log("✨ fuse!"),
   dismantle: ()=>console.log("🔧 dismantle!"),
+  upg: ()=>console.log("🔧 upg"),
+  success: ()=>console.log("✅ success"),
+  failed: ()=>console.log("❌ failed"),
 };
 
 // 自動セーブガード（必要なら後で実装）
@@ -92,7 +108,7 @@ load();
 // Export
 export {
   getState, commit, saveNow,
-  addDiamonds, spendDiamonds, nextItemId,
+  addDiamonds, spendDiamonds, nextItemId, makeCode,
   addToInventory, removeFromInventoryByIds,
   tierStyle, GACHA_RATE, ROLL_RANGES, sfx,
   installAutoSaveGuards

@@ -1,7 +1,7 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.4-ext-final+fix
+   Idle Lightning - game.js (EnemyDB連携) v6.4-ext-final+fix (PWA Audio hard-unlock)
    - Startロック & 二重init防止
-   - BGMトグル安定化＋自己復帰＋初回ジェスチャーで音解禁
+   - BGMトグル安定化＋自己復帰＋初回ジェスチャーで音解禁（WebAudio経由のハード解禁）
    - 強制終了→再起動・PWA再入場での無音対策（pageshow/focus/visibilitychange 再試行＋解禁ボタン）
    - 「はじめから」で Status/EXP も完全リセット（idleLightning*掃除）
    - ウォッチドッグ強化
@@ -526,7 +526,7 @@ function gameLoop(now = performance.now()) {
           addLog(`⚡ 攻撃ヒット：${e.def.name}（-${hitDmg} HP）`, 'alert');
           damagePlayer(hitDmg);
 
-          e.recoilFromX = e.x; e.recoilFromY = e.y; e.recoilToX = e.strikeFromX; e.recoilToY = e.strikeFromY;
+        e.recoilFromX = e.x; e.recoilFromY = e.y; e.recoilToX = e.strikeFromX; e.recoilToY = e.strikeFromY;
           e.state = 'recoil'; e.st = 0; e.atkCool = A.rate; e.el.classList.remove('pose-strike'); e.el.classList.add('pose-recoil');
         }
       }
@@ -713,24 +713,93 @@ window.GameAPI = {
   addLog, updateRemainLabel,
 };
 
-/* ========== BGM ========== */
+/* ========== BGM (iOS PWAハード解禁対応) ========== */
 const BGM_KEY = 'bgmEnabled';
 function bgmEnabled(){ const v = localStorage.getItem(BGM_KEY); return v == null ? true : v === '1'; }
 function setBgmEnabled(on){ try { localStorage.setItem(BGM_KEY, on ? '1' : '0'); } catch {} }
+
 function ensureBgmInit(){
   const day = document.getElementById('bgm-day'); const night = document.getElementById('bgm-night');
   if (!day || !night) return;
   day.volume = 0.7; night.volume = 0.7;
   day.loop = true; night.loop = true;
+  // PWA/iOS対策
+  ['playsinline','webkit-playsinline'].forEach(attr=>{
+    day.setAttribute(attr,''); night.setAttribute(attr,'');
+  });
 }
 function isAudioPlaying(a){ try{ return a && !a.paused && a.currentTime > 0 && !a.ended; }catch{return false;} }
 let __bgmRetryT = null;
 function kickBgmSoon(){ clearTimeout(__bgmRetryT); __bgmRetryT = setTimeout(()=>applyBgmForStage(), 220); }
 
-/* === Audio Unlock（再訪やPWAで音が出なくなる対策） === */
-let __bgmUnlocked = false;
-let __audioHintBtn = null;
+/* ---------- WebAudio ブリッジ（ハード解禁） ---------- */
+let __AC = null;
+const __mediaNode = Object.create(null);
+let __audioUnlocked = false;   // WebAudio観点の解禁フラグ
+let __bgmUnlocked   = false;   // 既存フラグ互換（pageshowでリセット等）
 
+function getAC(){
+  if (!__AC) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) __AC = new Ctx();
+  }
+  return __AC;
+}
+function bridgeMediaElement(el, id){
+  try {
+    if (!el || !getAC()) return;
+    if (__mediaNode[id]) return; // 二重接続禁止
+    __mediaNode[id] = getAC().createMediaElementSource(el);
+    __mediaNode[id].connect(getAC().destination);
+  } catch(e) {
+    // 既に接続済み例外などは無視
+  }
+}
+
+/** iOS/WKWebView対策：ユーザー操作で AudioContext.resume → 無音start → <audio> prime */
+async function hardUnlockAudio(){
+  if (__audioUnlocked) return;
+  ensureBgmInit();
+  const day   = document.getElementById('bgm-day');
+  const night = document.getElementById('bgm-night');
+  if (!day || !night) return;
+
+  try {
+    const ac = getAC();
+    if (ac && ac.state === 'suspended') { try{ await ac.resume(); }catch{} }
+
+    // 無音1サンプルを再生してデバイスを起こす
+    if (ac) {
+      const buf = ac.createBuffer(1, 1, 22050);
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      src.connect(ac.destination);
+      try{ src.start(0); }catch{}
+    }
+
+    // <audio> を WebAudio に橋渡し
+    bridgeMediaElement(day, 'bgm-day');
+    bridgeMediaElement(night,'bgm-night');
+
+    // iOSは最初のplayをジェスチャ内で行う必要がある
+    const prime = async (a) => {
+      try {
+        if (a.readyState === 0) a.load();
+        a.muted = false;
+        a.volume = Math.max(0.0001, a.volume || 0.7);
+        await a.play(); a.pause(); a.currentTime = 0;
+      } catch {}
+    };
+    await prime(day);
+    await prime(night);
+  } finally {
+    __audioUnlocked = true;
+    __bgmUnlocked   = true;
+  }
+}
+
+/* 解禁ボタン（自動再生拒否時に表示） */
+let __audioHintBtn = null;
 function showAudioUnlockHint(){
   if (__audioHintBtn) return;
   const btn = document.createElement('button');
@@ -747,42 +816,34 @@ function showAudioUnlockHint(){
   __audioHintBtn = btn;
 }
 
+/* 既存API互換の解禁関数（SFX prime付き） */
 async function unlockBgmOnce(){
-  if (__bgmUnlocked) return;
-  const day   = document.getElementById('bgm-day');
-  const night = document.getElementById('bgm-night');
-  if (!day || !night) return;
+  if (__bgmUnlocked && __audioUnlocked) return;
+  await hardUnlockAudio();
 
+  // SFXもprime
+  ensureSfxInit();
   const prime = async (a) => {
     try {
-      const oldVol = a.volume;
-      a.volume = 0.0;
-      a.muted  = false;
       if (a.readyState === 0) a.load();
-      await a.play().catch(()=>{});
-      a.pause();
-      a.currentTime = 0;
-      a.volume = oldVol;
+      a.volume = Math.max(0.0001, a.volume || ATTACK_SFX_VOL);
+      await a.play(); a.pause(); a.currentTime = 0;
     } catch {}
   };
-
-  await prime(day);
-  await prime(night);
-
-  // SFXプールも解禁
-  ensureSfxInit();
   for (const a of Sfx.attackPool) { await prime(a); }
 
   __bgmUnlocked = true;
 }
 
+/* ジェスチャーでハード解禁 */
 function wireFirstGestureUnlock(){
   const fn = () => { unlockBgmOnce(); };
   document.addEventListener('pointerdown', fn, { once:true, passive:true });
-  document.addEventListener('touchstart', fn, { once:true, passive:true }); // iOS保険
+  document.addEventListener('touchstart', fn, { once:true, passive:true });
   document.addEventListener('keydown',     fn, { once:true });
 }
 
+/* BGM 適用/自己復帰 */
 async function applyBgmForStage(){
   ensureBgmInit();
   const day   = document.getElementById('bgm-day');
@@ -792,10 +853,17 @@ async function applyBgmForStage(){
   const desired = gs.isNight ? night : day;
   const other   = gs.isNight ? day   : night;
 
+  const btn = document.getElementById('btn-bgm');
+
   if (!bgmEnabled()){
     try{ day.pause(); night.pause(); }catch{}
-    const btn = document.getElementById('btn-bgm');
     if (btn){ btn.setAttribute('aria-pressed','false'); btn.textContent = '♪ BGM OFF'; }
+    return;
+  }
+
+  // 未解禁ならUIだけON表示し、解禁後に再トライ
+  if (!__audioUnlocked) {
+    if (btn){ btn.setAttribute('aria-pressed','true'); btn.textContent = '♪ BGM ON'; }
     return;
   }
 
@@ -803,16 +871,12 @@ async function applyBgmForStage(){
     if (desired.readyState === 0) desired.load();
     if (other && !other.paused) other.pause();
     desired.muted = false;
-    if (!isAudioPlaying(desired)) {
-      await desired.play();
-    }
+    if (!isAudioPlaying(desired)) await desired.play();
   }catch(e){
-    // 自動再生拒否 or 復帰直後
     showAudioUnlockHint();
     kickBgmSoon();
   }
 
-  const btn = document.getElementById('btn-bgm');
   if (btn){ btn.setAttribute('aria-pressed','true'); btn.textContent = '♪ BGM ON'; }
 }
 
@@ -826,7 +890,13 @@ function wireBgmSelfRecovery(){
     day.addEventListener(ev, rearm);
     night.addEventListener(ev, rearm);
   });
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) kickBgmSoon(); });
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden) {
+      const ac = getAC();
+      if (ac && ac.state === 'suspended') { try{ ac.resume(); }catch{} }
+      kickBgmSoon();
+    }
+  });
   day.dataset.rewire = night.dataset.rewire = '1';
 }
 
@@ -837,13 +907,11 @@ function wireBgmToggleButton(){
   syncBtn();
   btn.addEventListener('click', async () => {
     setBgmEnabled(!bgmEnabled());
-    // ONにした直後は解禁も試す
-    if (bgmEnabled()) await unlockBgmOnce();
+    if (bgmEnabled() && !__audioUnlocked) await unlockBgmOnce();
     await applyBgmForStage();
   });
   btn.dataset.wired = '1';
   window.GameAPI?.onStageChange?.(applyBgmForStage);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) applyBgmForStage(); }, { once:false });
 }
 
 /* ========== Status gold pill (title area) ========== */
@@ -897,17 +965,24 @@ window.addEventListener('load', () => {
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
   wireBgmToggleButton();
   wireBgmSelfRecovery();
-  wireFirstGestureUnlock(); // ★ 最初のジェスチャーで音解禁
+  wireFirstGestureUnlock();
 });
 
 // PWA/再入場時の無音対策：復帰で再試行＆必要なら解禁待ち
 window.addEventListener('pageshow', () => {
-  __bgmUnlocked = false;           // 状況によりロックが戻る端末があるためリセット
-  wireFirstGestureUnlock();        // 解禁待ちを張り直す
-  kickBgmSoon();                   // 少し遅延で再生を試みる
+  __bgmUnlocked = false;
+  __audioUnlocked = false;
+  wireFirstGestureUnlock();
+  kickBgmSoon();
 });
 window.addEventListener('focus',   ()=> kickBgmSoon());
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) kickBgmSoon(); });
+
+// display-mode変化（A2HS/ブラウザ）でも再試行
+try {
+  const mm = window.matchMedia('(display-mode: standalone)');
+  mm.addEventListener?.('change', ()=> { if (mm.matches) kickBgmSoon(); });
+} catch {}
 
 /* ========== Controls (最後に置いてクリック時も音解禁) ========== */
 function showStartScreen() {
@@ -927,12 +1002,12 @@ function hideStartScreen() {
 
 btnNew?.addEventListener('click', (e) => {
   e.preventDefault();
-  unlockBgmOnce();                         // ★ クリックで確実に音を解禁
+  unlockBgmOnce();                         // クリックで確実に音を解禁
   resetAllProgressHard(); saveGame(); hideStartScreen();
 });
 btnContinue?.addEventListener('click', (e) => {
   e.preventDefault();
-  unlockBgmOnce();                         // ★ クリックで確実に音を解禁
+  unlockBgmOnce();                         // クリックで確実に音を解禁
   const data = loadGame();
   if (data) {
     gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();

@@ -1,19 +1,45 @@
 // =====================================================
-// spirit_gear.js — 精霊石＆指輪：在庫/ガチャ/強化/合成/分解/装着 v1
-// 依存: shared.js（getState/commit/saveNow/…）を流用
+// spirit_gear.js — 精霊石＆指輪：在庫/ガチャ/強化/合成/分解/装着 v1.2
+// 依存: shared.js（getState/commit/saveNow/…）
 // =====================================================
 
-/* 01) 依存 */
 import {
   getState, commit, saveNow,
-  addDiamonds, spendDiamonds, nextItemId,
+  addDiamonds, spendDiamonds, nextItemId, makeCode,
   addToInventory, removeFromInventoryByIds,
   tierStyle, GACHA_RATE, ROLL_RANGES, sfx,
   installAutoSaveGuards
 } from './shared.js';
 
-/* 02) DOM参照 */
+/* 00) Audio unlock（PWA保険） */
 const $ = sel => document.querySelector(sel);
+const aUpg = $('#sfx-upg');
+const aSuc = $('#sfx-success');
+const aSucAlt = $('#sfx-success-alt');
+const aFail = $('#sfx-failed');
+const unlockBtn = $('#unlockAudioBtn');
+
+let audioUnlocked = false;
+async function unlockAudios(){
+  const tryPrime = async (a)=>{
+    if(!a) return;
+    try { a.volume = Math.min(1, a.volume || 0.9); await a.play().catch(()=>{}); a.pause(); a.currentTime=0; } catch {}
+  };
+  await tryPrime(aUpg);
+  await tryPrime(aSuc);
+  await tryPrime(aSucAlt);
+  await tryPrime(aFail);
+  audioUnlocked = true;
+  if (unlockBtn) unlockBtn.hidden = true;
+}
+function wireUnlock(){
+  const once = ()=> unlockAudios();
+  document.addEventListener('pointerdown', once, { once:true, passive:true });
+  document.addEventListener('keydown',     once, { once:true });
+  if (unlockBtn) { unlockBtn.hidden = false; unlockBtn.onclick = unlockAudios; }
+}
+
+/* 01) DOM参照 */
 const invEl       = $('#inv');
 const toastEl     = $('#toast');
 const diaEl       = $('#dia');
@@ -27,12 +53,13 @@ const btnEquip     = $('#equipBtn');
 const btnG1        = $('#gacha1');
 const btnG10       = $('#gacha10');
 const btnFuse      = $('#fuseBtn');
+const enhOverlay   = $('#enhOverlay');
 
 let selected     = new Set();
 let visibleItems = [];
 let enhancing    = false;
 
-/* 03) 2スロ（石/指輪）表示 */
+/* 02) 2スロ（石/指輪）表示 */
 function renderEquipped(){
   const st = getState();
   st.equipped ||= { stone:null, ring:null };
@@ -41,16 +68,21 @@ function renderEquipped(){
     const id = st.equipped[slot];
     if(!id){
       return `
-        <div class="slot" id="slot-${slot}" data-slot="${slot}">
+        <div class="slot" id="slot-${slot}" data-slot="${slot}" tabindex="0" role="button" aria-label="${label}スロット（空）">
           <div class="muted">${label}<br><small>（なし）</small></div>
         </div>`;
     }
     const it = st.inventory.find(x=> x.id===id);
+    if(!it){
+      // 参照切れ対策
+      commit(s=>{ s.equipped[slot]=null; return s; }); saveNow();
+      return mkSlot(slot, label);
+    }
     const color = tierStyle[it.tier]?.color || '#ccc';
     const icon  = it.type==='石' ? '🪨' : '💍';
     return `
-      <div class="slot filled" id="slot-${slot}" data-slot="${slot}" style="border-color:${color}">
-        <div class="card" style="--rar:${color};position:relative;min-width:140px;min-height:100px;padding:10px;border-color:${color}">
+      <div class="slot filled" id="slot-${slot}" data-slot="${slot}" tabindex="0" role="button" aria-label="${label}スロット（装備中）" style="border-color:${color}">
+        <div class="card equip" style="--rar:${color}">
           <div class="row space">
             <span class="badge" style="background:${color}">${it.tier}</span>
             <span class="tag">+${it.plus||0}</span>
@@ -59,14 +91,24 @@ function renderEquipped(){
             <b class="wname">${icon} ${it.type}</b>
           </div>
           <button type="button" class="infoBtn bottom" data-id="${it.id}">?</button>
+          <button type="button" class="unequip" data-slot="${slot}">外す</button>
         </div>
       </div>`;
   };
 
   equippedBar.innerHTML = mkSlot('stone','精霊石') + mkSlot('ring','指輪');
+
+  // 外す
+  equippedBar.querySelectorAll('button.unequip').forEach(btn=>{
+    btn.onclick = ()=>{
+      const slot = btn.dataset.slot;
+      commit(s=>{ s.equipped ||= {stone:null, ring:null}; s.equipped[slot]=null; return s; });
+      saveNow(); toast('装備を外しました','info',1000); refresh();
+    };
+  });
 }
 
-/* 04) 在庫レンダリング */
+/* 03) 在庫レンダリング */
 function refresh(){
   const st = getState();
   st.equipped ||= { stone:null, ring:null };
@@ -94,7 +136,7 @@ function renderCard(it){
   const icon = it.type==='石' ? '🪨' : '💍';
   const checked = selected.has(it.id) ? 'checked' : '';
   return `
-    <div class="card" data-id="${it.id}" style="--rar:${border};border-color:${border}">
+    <div class="card" data-id="${it.id}" style="--rar:${border}" tabindex="0">
       <div class="pickBox">
         <input type="checkbox" class="pick" data-id="${it.id}" ${checked} aria-label="select-${it.id}">
       </div>
@@ -106,6 +148,7 @@ function renderCard(it){
         <span class="tag">+${it.plus||0}</span>
       </div>
       <div class="chips" style="margin-top:6px">${rollChips(it)}</div>
+      <div class="code">#${it.code || '????'}</div>
       <button type="button" class="infoBtn bottom" data-id="${it.id}">?</button>
     </div>`;
 }
@@ -122,7 +165,7 @@ function rollChips(it){
   return arr.join(' ');
 }
 
-/* 05) 選択チェック */
+/* 04) 選択チェック */
 function bindCardChecks(){
   invEl.querySelectorAll('input.pick').forEach(cb=>{
     cb.onchange = ()=>{
@@ -133,7 +176,7 @@ function bindCardChecks(){
   });
 }
 
-/* 06) トースト */
+/* 05) トースト */
 let toastTimer=null;
 function toast(msg, kind='info', ms=1600){
   if(!toastEl){ alert(msg); return; }
@@ -144,7 +187,7 @@ function toast(msg, kind='info', ms=1600){
   toastTimer = setTimeout(()=>{ toastEl.style.display='none'; }, ms);
 }
 
-/* 07) 情報バブル */
+/* 06) 情報バブル */
 function closeAllInfo(){ document.querySelectorAll('.infoBubble').forEach(el=>el.remove());
   document.querySelectorAll('.infoBtn[data-open="1"]').forEach(b=> b.removeAttribute('data-open'));
 }
@@ -156,7 +199,7 @@ function openInfo(btn, it){
   bubble.className='infoBubble';
   bubble.innerHTML=`
     <div style="font-weight:900;margin-bottom:4px;">装備情報</div>
-    <div><b>+${it.plus||0} ${it.tier} ${it.type}</b></div>
+    <div><b>+${it.plus||0} ${it.tier} ${it.type}</b> / <small>#${it.code}</small></div>
     ${r.critDmg?`<div>クリダメ +${r.critDmg}%</div>`:''}
     ${r.atkPct? `<div>攻撃 +${r.atkPct}%</div>`:''}
     ${r.autoMs? `<div>自動 -${r.autoMs}ms</div>`:''}
@@ -185,7 +228,7 @@ document.addEventListener('click', e=>{
   if(!e.target.closest('.infoBubble')) closeAllInfo();
 });
 
-/* 08) ガチャ（石/指輪ランダム） */
+/* 07) ガチャ（石/指輪ランダム） */
 const TYPES = ['石','指輪'];
 const randInt = (a,b)=> Math.floor(Math.random()*(b-a+1))+a;
 function shuffle(arr){ arr=arr.slice(); for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]];} return arr; }
@@ -208,9 +251,10 @@ function rollItem(){
   if(spec.special) rolls.special = true;
 
   const id = nextItemId();
+  const code = makeCode(8);
   const name = `(${tier})${type}`;
   const color = (tierStyle[tier]?.color) || '#ccc';
-  return { id, type, tier, name, color, rolls, plus:0, count:1 };
+  return { id, type, tier, name, color, rolls, plus:0, count:1, code };
 }
 function gacha(n){
   const cost = 10*n;
@@ -224,7 +268,7 @@ function gacha(n){
 
   const rare = pulled.filter(p=> ['S','A','B'].includes(p.tier));
   if(rare.length){
-    const lines = rare.map(r=> `・${r.name}`).join('\n');
+    const lines = rare.map(r=> `・${r.name} #${r.code}`).join('\n');
     toast(`🎉 入手！\n${lines}`,'ok',2200);
   }else{
     toast(`入手：${n}個`,'info',1200);
@@ -232,7 +276,7 @@ function gacha(n){
   selected.clear(); refresh();
 }
 
-/* 09) 合成（10個：同Tier＆同Type） */
+/* 08) 合成（10個：同Tier＆同Type） */
 function fuse(){
   if(selected.size!==10){ toast('合成は10個選択してください','warn'); return; }
   const st = getState();
@@ -254,14 +298,14 @@ function fuse(){
     const up = rollItem();
     up.tier = ladder[idx+1]; up.name = `(${up.tier})${ty0}`; up.type = ty0;
     addToInventory(up); saveNow();
-    toast(`✅ 合成成功！ ${up.name}`,'ok',1800);
+    toast(`✅ 合成成功！ ${up.name} #${up.code}`,'ok',1800);
   }else{
     toast('❌ 合成失敗…（素材は消失）','warn',1600);
   }
   selected.clear(); refresh();
 }
 
-/* 10) 分解（選択 -> ダイヤ） */
+/* 09) 分解（選択 -> ダイヤ） */
 const DISMANTLE_DIAMONDS = {
   D:[0,1,2], C:[20,10,0], B:[100,80,30], A:[300,200,100], S:[5000,2000,1000],
 };
@@ -282,31 +326,42 @@ function dismantleSelected(){
   selected.clear(); refresh();
 }
 
-/* 11) 強化（確率=0.9^next、+7以降は失敗40%で破壊） */
+/* 10) 強化（0.9^next、+5以降は失敗時40%で破壊） */
 const ENH_BASE = { D:5, C:10, B:15, A:20, S:30 };
 const ENH_INC  = { D:5, C:5,  B:10, A:10, S:10 };
-const breakCondP = 0.40;
+const BREAK_AFTER_PLUS = 5; // ★ ここから破壊モード
+const BREAK_RATE_ON_FAIL = 0.40;
 
 function enhCost(it){ return (ENH_BASE[it.tier]||10) + (ENH_INC[it.tier]||5)*(it.enhCount|0); }
-function enhSuccP(nextPlus){ return Math.pow(0.9, nextPlus); }
-function setBusy(b){ ['gacha1','gacha10','fuseBtn','equipBtn','selectAllBtn','autoDismantleBtn','enhanceBtn']
-  .forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=!!b; }); }
-function beep(times=3){ try{ const ac=new (window.AudioContext||window.webkitAudioContext)(); let t=ac.currentTime;
-  for(let i=0;i<times;i++){ const o=ac.createOscillator(), g=ac.createGain(); o.type='square'; o.frequency.setValueAtTime(880,t);
-    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.15,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
-    o.connect(g).connect(ac.destination); o.start(t); o.stop(t+0.2); t+=0.6; } }catch{} }
+function enhSuccP(nextPlus){ return Math.pow(0.9, nextPlus); } // 90%,81%,72.9%...
+
+function formatPct(v, digits=1){
+  return (v*100).toFixed(digits).replace(/\.0+$/,'') + '%';
+}
 
 function confirmBox(html){
   return new Promise(res=>{
-    const w=document.createElement('div'); w.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
-    const b=document.createElement('div'); b.style.cssText='max-width:420px;width:calc(100% - 32px);background:#fff;color:#111;border:2px solid #000;border-radius:14px;box-shadow:0 18px 40px rgba(0,0,0,.3);padding:16px';
-    b.innerHTML=`<div style="font-weight:900;margin-bottom:8px;">強化の確認</div><div style="margin-bottom:12px;">${html}</div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;"><button id="no" class="btn" style="background:#fff;">いいえ</button>
-    <button id="yes" class="btn" style="background:linear-gradient(#ffe5e5,#ffd0d0);border-color:#000;">はい</button></div>`;
+    const w=document.createElement('div'); w.className='modal-wrap';
+    const b=document.createElement('div'); b.className='modal';
+    b.innerHTML=`<div class="title">強化の確認</div><div class="body">${html}</div>
+    <div class="row r"><button id="no" class="btn ghost">いいえ</button>
+    <button id="yes" class="btn accent">はい</button></div>`;
     w.appendChild(b); document.body.appendChild(w);
     b.querySelector('#no').onclick=()=>{document.body.removeChild(w);res(false)};
     b.querySelector('#yes').onclick=()=>{document.body.removeChild(w);res(true)};
   });
+}
+
+function setBusy(b){ ['gacha1','gacha10','fuseBtn','equipBtn','selectAllBtn','autoDismantleBtn','enhanceBtn']
+  .forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=!!b; }); }
+
+function animateFlash(cardEl, on){
+  if(!cardEl) return;
+  if(on){
+    cardEl.classList.add('enh-flash');
+  }else{
+    cardEl.classList.remove('enh-flash');
+  }
 }
 
 async function enhance(){
@@ -319,59 +374,74 @@ async function enhance(){
 
   const next = (it.plus|0)+1;
   const p = enhSuccP(next), failP = 1-p;
-  const breakOnFail = (it.plus|0)>=7;
-  const overBreakP = breakOnFail ? failP*breakCondP : 0;
+  const willBreakZone = (it.plus|0) >= BREAK_AFTER_PLUS;
+  const overBreakP = willBreakZone ? failP*BREAK_RATE_ON_FAIL : 0;
   const cost = enhCost(it);
-  const warn = breakOnFail ? `<div style="margin-top:6px;color:#b91c1c;font-weight:900;">⚠ +7以降：失敗時40%で破壊</div>` : '';
 
-  const ok = await confirmBox(
-    `対象：<b>${it.tier} ${it.type}</b>（<b>+${it.plus|0}</b> → <b>+${next}</b>）<br>
-     成功率：<b>${(p*100).toFixed(1)}%</b> / 失敗率：${(failP*100).toFixed(1)}%<br>
-     破壊率：<b>${(overBreakP*100).toFixed(1)}%</b><br>
-     必要ダイヤ：<b>💎${cost}</b>${warn}`
-  );
+  const html = `
+     対象：<b>${it.tier} ${it.type}</b>（<b>+${it.plus|0}</b> → <b>+${next}</b>）<br>
+     成功率：<b>${formatPct(p,1)}</b> / 失敗率：${formatPct(failP,1)}<br>
+     ${willBreakZone?`破壊率（失敗時）：<b>${formatPct(BREAK_RATE_ON_FAIL*100===40?0.40:BREAK_RATE_ON_FAIL,1)}</b><br>`:''}
+     必要ダイヤ：<b>💎${cost}</b>
+     ${willBreakZone?`<div class="warn">⚠ +${BREAK_AFTER_PLUS}以降：失敗時<b>40%</b>で破壊</div>`:''}
+  `;
+  const ok = await confirmBox(html);
   if(!ok) return;
 
   if(!spendDiamonds(cost)){ toast('💎が足りません','warn'); return; }
   saveNow(); if(diaEl) diaEl.textContent = getState().currency.diamonds|0;
 
   const cardEl = invEl?.querySelector(`.card[data-id="${id}"]`);
-  enhancing=true; setBusy(true); beep(3); sfx.fuse?.();
+  enhancing=true; setBusy(true);
 
-  let tick=0; const colors=['#ef4444','#3b82f6'];
-  const flash = setInterval(()=>{ if(cardEl){ const c=colors[tick++%2]; cardEl.style.borderColor=c; cardEl.style.boxShadow=`0 0 0 2px ${c}55,0 8px 18px rgba(0,0,0,.18)`;} },160);
+  // 許可中… 4秒 + フラッシュ + upg.mp3
+  enhOverlay.hidden = false;
+  animateFlash(cardEl, true);
+  if (audioUnlocked) try{ aUpg.currentTime=0; aUpg.play(); }catch{}
 
-  setTimeout(()=>{
-    clearInterval(flash);
-    if(cardEl){ cardEl.style.borderColor=''; cardEl.style.boxShadow=''; }
+  await new Promise(r=> setTimeout(r, 4000)); // 4秒待機
+  // 2秒無音待ち
+  await new Promise(r=> setTimeout(r, 2000));
 
-    let success=false, broke=false;
-    commit(s=>{
-      const x = s.inventory.find(v=> v.id===id);
-      if(!x) return s;
-      x.enhCount = (x.enhCount|0)+1;
-      success = Math.random()<p;
-      if(success){ x.plus=(x.plus|0)+1; }
-      else if((x.plus|0)>=7 && Math.random()<breakCondP){
-        broke=true;
-        if(s.equipped?.stone===id) s.equipped.stone=null;
-        if(s.equipped?.ring===id)  s.equipped.ring=null;
-        const idx = s.inventory.findIndex(v=> v.id===id);
-        if(idx>=0) s.inventory.splice(idx,1);
-      }
-      return s;
-    });
-    saveNow();
+  // 判定
+  let success=false, broke=false;
+  commit(s=>{
+    const x = s.inventory.find(v=> v.id===id);
+    if(!x) return s;
+    x.enhCount = (x.enhCount|0)+1;
+    success = Math.random()<p;
+    if(success){ x.plus=(x.plus|0)+1; }
+    else if((x.plus|0)>=BREAK_AFTER_PLUS && Math.random()<BREAK_RATE_ON_FAIL){
+      broke=true;
+      if(s.equipped?.stone===id) s.equipped.stone=null;
+      if(s.equipped?.ring===id)  s.equipped.ring=null;
+      const idx = s.inventory.findIndex(v=> v.id===id);
+      if(idx>=0) s.inventory.splice(idx,1);
+    }
+    return s;
+  });
+  saveNow();
 
-    if(success) toast(`✨ 強化成功：+${next-1} → +${next}`,'ok',1400);
-    else if(broke) toast('💥 強化失敗：装備破壊','warn',1800);
-    else toast('❌ 強化失敗','warn',1200);
+  enhOverlay.hidden = true;
+  animateFlash(cardEl, false);
 
-    enhancing=false; setBusy(false); selected.clear(); refresh();
-  }, 2200);
+  if(success){
+    toast(`✨ 強化成功：+${next-1} → +${next}`,'ok',1600);
+    if (audioUnlocked) {
+      try { (aSuc?.src && !aSuc.error) ? aSuc.play() : aSucAlt.play(); } catch {}
+    }
+  }else if(broke){
+    toast('💥 強化失敗：装備破壊','warn',2000);
+    if (audioUnlocked) try{ aFail.currentTime=0; aFail.play(); }catch{}
+  }else{
+    toast('❌ 強化失敗','warn',1500);
+    if (audioUnlocked) try{ aFail.currentTime=0; aFail.play(); }catch{}
+  }
+
+  enhancing=false; setBusy(false); selected.clear(); refresh();
 }
 
-/* 12) 装着（2スロ自動判定） */
+/* 11) 装着（2スロ自動判定） */
 function animateFly(sourceCardEl, targetSlotEl, done){
   if(!sourceCardEl || !targetSlotEl){ done?.(); return; }
   const sRect = sourceCardEl.getBoundingClientRect();
@@ -411,7 +481,7 @@ function equipSelected(){
   });
 }
 
-/* 13) 全選択 */
+/* 12) 全選択 */
 function toggleSelectAll(){
   const ids = visibleItems.map(x=> x.id);
   const all = ids.every(id=> selected.has(id));
@@ -422,7 +492,7 @@ function toggleSelectAll(){
   if(selCountEl) selCountEl.textContent = String(selected.size);
 }
 
-/* 14) bind */
+/* 13) bind */
 function bind(){
   btnG1 && (btnG1.onclick = ()=> gacha(1));
   btnG10 && (btnG10.onclick = ()=> gacha(10));
@@ -431,11 +501,15 @@ function bind(){
   btnEquip && (btnEquip.onclick = equipSelected);
   btnSelectAll && (btnSelectAll.onclick = toggleSelectAll);
   btnAutoDis && (btnAutoDis.onclick = dismantleSelected);
+
+  // Info bubble close on ESC
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllInfo(); });
 }
 
-/* 15) init */
+/* 14) init */
 (function init(){
   installAutoSaveGuards();
+  wireUnlock();
   bind();
   refresh();
 })();
