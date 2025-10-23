@@ -1,12 +1,12 @@
 /* =========================================================
-   Idle Lightning - game.js (EnemyDB連携) v6.4-clean (patched EXT3)
+   Idle Lightning - game.js (EnemyDB連携) v6.4-ext-final
    - Startロック & 二重init防止
-   - BGMトグル安定化＋自己復帰
+   - BGMトグル安定化＋自己復帰＋初回ジェスチャーで音解禁
    - 「はじめから」で Status/EXP も完全リセット（idleLightning*掃除）
    - ウォッチドッグ強化
    - 敵は常に画面右の外側からスポーン（近すぎ事故防止）＋スポーングレース
    - CLEAR! 表示後に遷移
-   - 攻撃SFX（attack.mp3）をビーム発射に同期
+   - 攻撃SFX（attack.mp3）をビーム発射に同期（BGMトグルに追従）
    ========================================================= */
 
 /* ========== Config ========== */
@@ -14,8 +14,8 @@ const ENEMY_SPEED_MUL = 0.88;
 const CLEAR_PAUSE_MS  = 3000;
 
 // 右側オフスクリーンスポーン距離＆脱落判定の余白
-const SPAWN_OFF_X     = 260;  // 画面右端からどのくらい外で出すか
-const ESCAPE_MARGIN_X = SPAWN_OFF_X + 260; // 逃走判定はスポーン距離より十分外
+const SPAWN_OFF_X     = 260;                 // 画面右端からどのくらい外で出すか
+const ESCAPE_MARGIN_X = SPAWN_OFF_X + 260;   // 逃走判定はスポーン距離より十分外
 const ESCAPE_MARGIN_Y = 320;
 
 // スポーン直後の「脱落判定をしない猶予」(秒)
@@ -140,6 +140,7 @@ function updateRemainLabel(){
 updateStageLabel();
 
 /* ========== Lightning ========== */
+// ★ 基本射程はここ（初期値を変えたいなら range を変更）
 const lightning = { baseDmg: 8, cooldown: 0.70, cooldownBase: undefined, range: 380, baseRange: undefined, chainCount: 2, falloff: 0.85, timer: 0 };
 chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
 
@@ -281,7 +282,7 @@ const ExpAPI = {
     if (window.Exp?.expFromKill) return window.Exp.expFromKill(gs, type);
     const base = {swarm:1, runner:2, tank:6}[type]||1;
     const chap = 1 + (gs.chapter-1)*0.25;
-    const night= gs.isNight?1.5:1;   // ← FIX
+    const night= gs.isNight?1.5:1;   // FIXED
     return Math.round(base*chap*night);
   },
   expFromStageClear(gs){
@@ -448,6 +449,7 @@ function getEnemyCenter(e){ return centerScreen(e.el); }
 function enemyRadius(e){ const size = (e.def?.size) || 28; return Math.max(10, size * 0.40); }
 function spiritRadius(){ const sr = spiritEl.getBoundingClientRect(); return Math.max(sr.width, sr.height) * 0.42 || 16; }
 
+// 置換版 gameLoop（例外が出ても止まらない）
 function gameLoop(now = performance.now()) {
   let dt = (now - last) / 1000; 
   last = now;
@@ -462,6 +464,7 @@ function gameLoop(now = performance.now()) {
       if (!laneRect || !Number.isFinite(laneRect.width) || laneRect.width === 0) return;
     }
 
+    // レーンの変化を追従
     const r = laneEl.getBoundingClientRect();
     if (Math.abs(r.top - laneRect.top) > 1 || Math.abs(r.height - laneRect.height) > 1 || Math.abs(r.left - laneRect.left) > 1) {
       laneRect = r;
@@ -555,10 +558,12 @@ function gameLoop(now = performance.now()) {
     tryAttack(dt);
     trySpawn(dt);
 
+    // クリア検知（遅延して遷移）
     if (!clearPending && spawnPlan.spawned >= spawnPlan.total && spawnPlan.alive <= 0 && enemies.length === 0) {
       showClearThenAdvance();
     }
 
+    // Watchdog（停滞対策 + 失敗直後キック）
     const nowMs = performance.now();
     if (gs.running && !gs.paused) {
       const noEnemy = enemies.length === 0 && spawnPlan.alive === 0;
@@ -570,6 +575,7 @@ function gameLoop(now = performance.now()) {
       if (sinceFail < 4000 && spawnPlan.spawned === 0 && sinceStart > 1500) {
         addLog('🧯 リカバリ: スポーンを起動', 'dim');
         if (spawnPlan.total === 0) setupStageCounters();
+        // 1体だけ強制スポーンで起動確認
         spawnEnemy();
         touchProgress();
       }
@@ -669,6 +675,7 @@ function resetAllProgressHard(){
 
   try { window.Status?.reset?.(); } catch {}
 
+  // idleLightning* を全削除（このゲーム専用キーの掃除）
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i) || '';
@@ -678,46 +685,6 @@ function resetAllProgressHard(){
 
   refreshCurrencies(); updateStageLabel();
 }
-
-/* ========== Controls ========== */
-function showStartScreen() {
-  if (hasStartHiddenLock()) { hideStartScreen(); return; }
-  if (hasSave()) { btnContinue && (btnContinue.disabled = false); if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。'; }
-  else { btnContinue && (btnContinue.disabled = true); if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。'; }
-  startScreenEl?.setAttribute('aria-hidden', 'false');
-  if (startScreenEl) startScreenEl.style.removeProperty('display');
-  gs.running = false;
-}
-function hideStartScreen() {
-  startScreenEl?.setAttribute('aria-hidden', 'true');
-  if (startScreenEl) startScreenEl.style.display = 'none';
-  gs.running = true; gs.paused = false; measureRects(); startStageHead();
-  setStartHiddenLock(true);
-}
-
-btnNew?.addEventListener('click', (e) => { e.preventDefault(); resetAllProgressHard(); saveGame(); hideStartScreen(); });
-btnContinue?.addEventListener('click', (e) => {
-  e.preventDefault();
-  const data = loadGame();
-  if (data) {
-    gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();
-    gs.floor = data.floor ?? 1; gs.chapter = data.chapter ?? 1; gs.stage = data.stage ?? 1; gs.isNight = !!data.isNight; gs.hpScale = data.hpScale ?? 1.0;
-    playerHpMax = data.playerHpMax ?? 100; playerHp = data.playerHp ?? playerHpMax; updatePlayerHpUI();
-    if (data.lightning) {
-      lightning.baseDmg   = data.lightning.baseDmg   ?? lightning.baseDmg;
-      lightning.cooldown  = data.lightning.cooldown  ?? lightning.cooldown;
-      lightning.range     = data.lightning.range     ?? lightning.range;
-      lightning.chainCount= data.lightning.chainCount?? lightning.chainCount;
-      chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
-    }
-  }
-  hideStartScreen();
-});
-
-btnResume?.addEventListener('click', (e) => { e.preventDefault(); gs.paused = false; addLog('▶ 再開', 'dim'); applyBgmForStage(); });
-btnRetry ?.addEventListener('click', (e) => { e.preventDefault(); addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
-
-setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);
 
 /* ========== GameAPI ========== */
 const listeners = { stageChange: new Set() };
@@ -757,6 +724,43 @@ function isAudioPlaying(a){ try{ return a && !a.paused && a.currentTime > 0 && !
 let __bgmRetryT = null;
 function kickBgmSoon(){ clearTimeout(__bgmRetryT); __bgmRetryT = setTimeout(()=>applyBgmForStage(), 200); }
 
+/* === Audio Unlock（再訪やPWAで音が出なくなる対策） === */
+let __bgmUnlocked = false;
+async function unlockBgmOnce(){
+  if (__bgmUnlocked) return;
+  const day   = document.getElementById('bgm-day');
+  const night = document.getElementById('bgm-night');
+  if (!day || !night) return;
+
+  const prime = async (a) => {
+    try {
+      const oldVol = a.volume;
+      a.volume = 0.0;
+      a.muted  = false;
+      if (a.readyState === 0) a.load();
+      await a.play().catch(()=>{});
+      a.pause();
+      a.currentTime = 0;
+      a.volume = oldVol;
+    } catch {}
+  };
+
+  // BGMを解禁
+  await prime(day);
+  await prime(night);
+
+  // SFXプールも解禁（必要なら）
+  ensureSfxInit();
+  for (const a of Sfx.attackPool) { await prime(a); }
+
+  __bgmUnlocked = true;
+}
+function wireFirstGestureUnlock(){
+  const fn = () => { unlockBgmOnce(); };
+  document.addEventListener('pointerdown', fn, { once:true, passive:true });
+  document.addEventListener('keydown',     fn, { once:true });
+}
+
 async function applyBgmForStage(){
   ensureBgmInit();
   const day   = document.getElementById('bgm-day');
@@ -767,18 +771,22 @@ async function applyBgmForStage(){
   const other   = gs.isNight ? day   : night;
 
   if (!bgmEnabled()){
-    try{ if (!day.paused) day.pause(); if (!night.paused) night.pause(); }catch{}
+    try{ day.pause(); night.pause(); }catch{}
     const btn = document.getElementById('btn-bgm');
     if (btn){ btn.setAttribute('aria-pressed','false'); btn.textContent = '♪ BGM OFF'; }
     return;
   }
 
   try{
+    if (desired.readyState === 0) desired.load();
     if (other && !other.paused) other.pause();
+    desired.muted = false;
     if (!isAudioPlaying(desired)) {
       await desired.play();
     }
-  }catch(e){ /* 自動再生制限: 可視復帰や自己復帰で再トライ */ }
+  }catch(e){
+    kickBgmSoon(); // 拒否時は少し後に再試行
+  }
 
   const btn = document.getElementById('btn-bgm');
   if (btn){ btn.setAttribute('aria-pressed','true'); btn.textContent = '♪ BGM ON'; }
@@ -858,4 +866,50 @@ window.addEventListener('load', () => {
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
   wireBgmToggleButton();
   wireBgmSelfRecovery();
+  wireFirstGestureUnlock(); // ★ 最初のジェスチャーで音解禁
 });
+
+/* ========== Controls (最後に置いてクリック時も音解禁) ========== */
+function showStartScreen() {
+  if (hasStartHiddenLock()) { hideStartScreen(); return; }
+  if (hasSave()) { btnContinue && (btnContinue.disabled = false); if (continueHintEl) continueHintEl.textContent = '前回の続きから再開できます。'; }
+  else { btnContinue && (btnContinue.disabled = true); if (continueHintEl) continueHintEl.textContent = 'セーブデータがあれば「つづきから」が有効になります。'; }
+  startScreenEl?.setAttribute('aria-hidden', 'false');
+  if (startScreenEl) startScreenEl.style.removeProperty('display');
+  gs.running = false;
+}
+function hideStartScreen() {
+  startScreenEl?.setAttribute('aria-hidden', 'true');
+  if (startScreenEl) startScreenEl.style.display = 'none';
+  gs.running = true; gs.paused = false; measureRects(); startStageHead();
+  setStartHiddenLock(true);
+}
+
+btnNew?.addEventListener('click', (e) => {
+  e.preventDefault();
+  unlockBgmOnce();                         // ★ クリックで確実に音を解禁
+  resetAllProgressHard(); saveGame(); hideStartScreen();
+});
+btnContinue?.addEventListener('click', (e) => {
+  e.preventDefault();
+  unlockBgmOnce();                         // ★ クリックで確実に音を解禁
+  const data = loadGame();
+  if (data) {
+    gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();
+    gs.floor = data.floor ?? 1; gs.chapter = data.chapter ?? 1; gs.stage = data.stage ?? 1; gs.isNight = !!data.isNight; gs.hpScale = data.hpScale ?? 1.0;
+    playerHpMax = data.playerHpMax ?? 100; playerHp = data.playerHp ?? playerHpMax; updatePlayerHpUI();
+    if (data.lightning) {
+      lightning.baseDmg   = data.lightning.baseDmg   ?? lightning.baseDmg;
+      lightning.cooldown  = data.lightning.cooldown  ?? lightning.cooldown;
+      lightning.range     = data.lightning.range     ?? lightning.range;
+      lightning.chainCount= data.lightning.chainCount?? lightning.chainCount;
+      chainEl && (chainEl.textContent = `${lightning.chainCount}/15`);
+    }
+  }
+  hideStartScreen();
+});
+
+btnResume?.addEventListener('click', (e) => { e.preventDefault(); gs.paused = false; addLog('▶ 再開', 'dim'); applyBgmForStage(); });
+btnRetry ?.addEventListener('click', (e) => { e.preventDefault(); addLog('↻ リトライ（章の頭へ）', 'alert'); failStage(); });
+
+setInterval(() => { if (gs.running && !gs.paused) saveGame(); }, 5000);

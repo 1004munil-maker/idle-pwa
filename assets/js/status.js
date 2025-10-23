@@ -16,19 +16,19 @@
 
   // 基準値＆上限
   const caps = {
-    critMax: 0.70,       // 最終クリ率上限（基礎10%含む）
+    critMax: 0.60,       // 最終クリ率上限（基礎10%含む）
     spdMin:  0.15,       // 最小クールダウン(s)
-    rangeMaxMul: 1.60,   // 射程最大倍率
+    rangeMaxMul: 2.20,   // 射程最大倍率
     goldMaxMul:  3.00,   // ゴールド最大倍率（+200%）
   };
   const step = {
-    crit:  0.001, // +0.1% / Lv
+    crit:  0.0025, // +0.25% / Lv
     spd:   0.010, // -10ms / Lv
-    range: 0.01,  // +1% / Lv
-    gold:  0.01,  // +1% / Lv
+    range: 0.005,  // +1% / Lv
+    gold:  0.05,  // +1% / Lv
   };
-  const costBase = { crit:15, spd:20, range:12, gold:18 };
-  const costK    = 1.12;
+  const costBase = { crit:15, spd:20, range:10, gold:15 };
+  const costK    = 1.13;
 
   // 状態
   let st = load() || { lvCrit:0, lvSpd:0, lvRange:0, lvGold:0, baseCooldown:0.70 };
@@ -80,7 +80,7 @@
     const goldNowNum = Number(typeof game?.getGold === 'function' ? game.getGold() : 0) || 0;
     const goldNow = goldNowNum.toLocaleString();
     wrap.innerHTML = `
-      <div style="max-width:560px; margin:10px auto; background:#121824; border:1px solid #29364a; border-radius:16px; padding:16px;">
+      <div style="max-width:560px; margin:0px auto; background:#121824; border:1px solid #29364a; border-radius:16px; padding:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:10px;">
             <b style="font-size:18px;">ステータス強化</b>
@@ -120,10 +120,10 @@
         </div>
       </div>`;
     rows.innerHTML =
-      mkRow('crit',  'クリティカル率', '基礎10% 〜 上限70%（+0.1%/Lv）') +
-      mkRow('spd',   '攻撃速度',      'CD -10ms/回（下限 150ms）') +
-      mkRow('range', '射程距離',      '射程 +1%/回（最大 +60%）') +
-      mkRow('gold',  'ゴールド獲得',  '獲得 +1%/回（最大 +200%）');
+      mkRow('crit',  'クリティカル率', '基礎10% 〜 上限60%（+0.25%/Lv）') +
+      mkRow('spd',   '攻撃速度',      'CD -5ms/回（下限 150ms）') +
+      mkRow('range', '射程距離',      '射程 +0.5%/回（最大 +120%）') +
+      mkRow('gold',  'ゴールド獲得',  '獲得 +5%/回（最大 +1000%）');
 
     const bind = (sel, handler) => rows.querySelectorAll(sel).forEach(btn => btn.addEventListener('click', () => handler(btn.closest('.row').dataset.key)));
     const hold = (sel, handler) => rows.querySelectorAll(sel).forEach(btn => {

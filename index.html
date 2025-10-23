@@ -14,6 +14,7 @@
   <link rel="preload" as="image" href="./assets/images/bg.png" />
   <link rel="preload" as="audio" href="./assets/audio/bgm_day.mp3" />
   <link rel="preload" as="audio" href="./assets/audio/bgm_night.mp3" />
+  <link rel="preload" as="audio" href="./assets/audio/attack.mp3" /> <!-- ★ 追加 -->
 
   <!-- Styles -->
   <link rel="stylesheet" href="./style.css?v=ultra-v6-clean" />
@@ -25,20 +26,17 @@
       <div class="hud-row">
         <div class="chip gold"><span class="label">Gold</span><span id="gold">0</span></div>
         <div class="chip dia"><span class="label">Dia</span><span id="diamond">0</span></div>
-        <!-- DPS は非表示化（CSSで display:none） -->
         <div class="chip dps"><span class="label">DPS</span><span id="dps">0</span></div>
         <div class="chip chain"><span class="label">Chain</span><span id="chain">2/15</span></div>
         <div class="chip"><span class="label">Stage</span><span id="stageLabel">1-1 / 1F</span></div>
         <div class="chip"><span class="label">残り</span><span id="remain">--</span></div>
 
-        <!-- Lv / EXP（Exp.jsがなくても見た目だけ表示） -->
         <span id="levelChip" class="chip">Lv 1</span>
         <div class="expbar-wrap">
           <div id="expBar" class="expbar-fill"></div>
         </div>
         <small id="expLabel" class="expbar-label">0 / 20</small>
 
-        <!-- HP -->
         <div class="chip"><span class="label">HP</span><span id="playerHpLabel">100/100</span></div>
       </div>
     </div>
@@ -50,15 +48,14 @@
         <div id="player-hp" class="player-hp"><div class="fill"></div></div>
       </div>
       <div id="enemy-lane" class="enemy-lane"></div>
-      <!-- ステージクリア表示（必要時に game.js で表示/非表示） -->
       <div id="stage-clear" class="stage-clear" aria-hidden="true">CLEAR!</div>
     </section>
 
     <!-- Log（右上にBGMボタン） -->
-  <section id="log" class="log" aria-live="polite">
-  <div id="log-entries" class="log-entries"></div>
-  <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
-</section>
+    <section id="log" class="log" aria-live="polite">
+      <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
+      <!-- ログはここに動的に追加 -->
+    </section>
 
     <!-- Menu -->
     <section class="menu">
@@ -93,7 +90,7 @@
 
   <!-- Scripts -->
   <script src="./assets/js/enemy-db.js?v=1"></script>
-  <script src="./assets/js/game.js?v=6.4-clean"></script>
+  <script src="./assets/js/game.js?v=6.4-ext-final"></script> <!-- ★ バージョン更新 -->
   <script src="./assets/js/exp.js?v=proto-01"></script>
   <script src="./assets/js/status.js?v=proto-02"></script>
 
@@ -121,6 +118,7 @@
   <!-- Audio -->
   <audio id="bgm-day"   src="./assets/audio/bgm_day.mp3"   preload="auto" loop></audio>
   <audio id="bgm-night" src="./assets/audio/bgm_night.mp3" preload="auto" loop></audio>
+  <!-- 任意：あるとSFXの解禁が安定 -->
   <audio id="sfx-attack" src="./assets/audio/attack.mp3" preload="auto"></audio>
 </body>
 </html>
