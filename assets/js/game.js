@@ -119,7 +119,7 @@ const watchdog = { lastProgress: performance.now(), lastFailAt: 0, lastStageStar
 function touchProgress(){ watchdog.lastProgress = performance.now(); }
 
 /* ========== Currency/HP/UI ========== */
-let gold = 0, diamonds = 0, dpsSmoothed = 0;
+let gold = 0, diamonds = 99999999, dpsSmoothed = 0;
 function refreshCurrencies(){ if (goldEl) goldEl.textContent = gold; if (diaEl) diaEl.textContent = diamonds; if (dpsEl) dpsEl.textContent = Math.round(dpsSmoothed); mountStatusGoldPill(); }
 refreshCurrencies();
 
