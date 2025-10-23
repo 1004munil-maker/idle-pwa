@@ -34,7 +34,6 @@ const laneEl   = document.getElementById('enemy-lane');
 const goldEl   = document.getElementById('gold');
 const diaEl    = document.getElementById('diamond');
 const dpsEl    = document.getElementById('dps');
-diaEl = 99999999;
 const chainEl  = document.getElementById('chain');
 const stageLabelEl = document.getElementById('stageLabel');
 const remainEl = document.getElementById('remain');
@@ -53,6 +52,8 @@ const continueHintEl = document.getElementById('continue-hint');
 const btnResume = document.getElementById('btn-resume');
 const btnRetry  = document.getElementById('btn-retry');
 const btnStatus = document.getElementById('btn-status');
+// （game.js の上部、DIAMOND_PER_DROP 定義）
+const DIAMOND_PER_DROP = 1000000;   // ← 100個に
 
 /* ========== Guards ========== */
 let __INIT_DONE = false;
@@ -435,7 +436,7 @@ function tryAttack(dt) {
       const expGain = ExpAPI.expFromKill(gs, e.def && e.def.name ? e.def.name.toLowerCase() : 'swarm');
       ExpAPI.addExp(expGain, 'kill');
 
-      removeEnemyById(e.eid, { by:'beam', fade:true });
+      removeEnemyById(e.eid, { by:'beam', fade:true });f
     }
   }
 
@@ -481,7 +482,7 @@ function gameLoop(now = performance.now()) {
 
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
-      e.t += dt; e.st += dt;
+      e.t += dt; e.st += dt
       if (e.atkCool > 0) e.atkCool -= dt;
       if (e.spawnGrace > 0) e.spawnGrace -= dt;
 
