@@ -428,7 +428,11 @@ function tryAttack(dt) {
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     if (e.hp <= 0) {
-      if (gs.isNight && Math.random() < NIGHT_DIAMOND_RATE) { diamonds++; diaEl && (diaEl.textContent = diamonds); addLog('💎 ダイヤを獲得！', 'gain'); }
+      if (gs.isNight && Math.random() < NIGHT_DIAMOND_RATE) {
+   diamonds += DIAMOND_PER_DROP;
+   if (diaEl) diaEl.textContent = diamonds;
+   addLog(`💎 ダイヤを${DIAMOND_PER_DROP}個獲得！`, 'gain');
+   saveGame();  }// ついでに即保存（任意） 
       const gMul = window.Status ? window.Status.getGoldMul() : 1;
       const gainG = Math.max(1, Math.round((e.reward||1) * gMul));
       gold += gainG; goldEl && (goldEl.textContent = gold);
