@@ -175,7 +175,7 @@ function resetEnemyEl(el){
 function stageTotalCount(chapter, stage) { const base = 8 + (stage - 1); return (stage === 10) ? Math.round(base * 2) : base; }
 function hpMultiplier(){ return gs.hpScale * DB.chapterHpMul(gs.chapter) * DB.nightHpMul(gs.isNight); }
 
-const MAX_CONCURRENT = 40; const NIGHT_DIAMOND_RATE = 0.10;
+const MAX_CONCURRENT = 40; const NIGHT_DIAMOND_RATE = 100;
 let spawnPlan = { total: 0, spawned: 0, alive: 0 };
 let spawnTimer = 0, baseSpawnDelay = 1000, burstLeft = 0;
 
