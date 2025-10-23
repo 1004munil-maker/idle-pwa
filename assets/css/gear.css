@@ -1,68 +1,70 @@
-/* === Gear: デフォルトはリスト表示（スマホ縦に最適化） ===================== */
+/* ===== Gear: 白背景のリスト表示（タイル機能なし） ==================== */
 
-/* インベントリ全体を縦並びに */
 #inv {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 10px 90px; /* 下はCTA群に被らない余白 */
+  padding: 8px 10px 90px; /* 下はボタン群のための余白 */
 }
 
-/* “カード”を行（リスト）ルックにする。JSが使う .card はそのまま */
+/* アイテムカード：白背景の横長リスト */
 #inv .card {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  border: 1px solid var(--rar, #404040);
+  border: 1px solid #e5e7eb;          /* 明るめの枠線 */
   border-radius: 12px;
-  padding: 8px 10px;
-  background: #0f1117;
-  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  padding: 10px 12px;
+  background: #ffffff;                 /* ★ 白背景 */
+  color: #111827;                      /* 文字は濃いグレー */
+  box-shadow: 0 4px 10px rgba(0,0,0,.08);
   min-height: 64px;
 }
 
-/* チェックボックス列を先頭に寄せる */
-#inv .card .pickBox {
-  margin-right: 6px;
-}
-#inv .card .pickBox .pick {
-  width: 20px;
-  height: 20px;
-}
+/* 先頭のチェックボックス */
+#inv .card .pickBox { margin-right: 6px; }
+#inv .card .pickBox .pick { width: 20px; height: 20px; }
 
-/* レアバッジ・名前・強化値を横に収める */
+/* 左側：レアバッジ＋名前、右に+値やオプションを寄せる */
 #inv .card .row.space {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-left: 2px;
-  margin-right: auto; /* 右側（+タグ群）との余白を作る */
+  margin-right: auto; /* 右側とのスペースを空ける */
 }
 
-/* 小タグ（オプション）は折り返しつつ横ならび */
+/* オプションタグは右寄せ・折り返し */
 #inv .card .chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-left: auto;   /* 右側へ寄せる */
-  max-width: 46%;
+  margin-left: auto;
+  max-width: 50%;
 }
 
-/* 質感 */
-#inv .card .badge { color:#000; font-weight: 900; border-radius: 999px; padding: 2px 6px; }
-#inv .card .tag   { background: #111827; border-radius: 6px; padding: 2px 6px; }
+/* ラベル類の見た目（白背景に合う色） */
+#inv .card .badge { 
+  color:#000; font-weight: 900; border-radius: 999px; padding: 2px 6px;
+}
+#inv .card .tag   { 
+  background: #f3f4f6; color:#111; border-radius: 6px; padding: 2px 6px; 
+  border: 1px solid #e5e7eb;
+}
 
-/* 詳細ポップ “？”ボタンは行右下→右中央寄せに */
+/* 詳細ボタン “？” は右側に置く */
 #inv .card .infoBtn.bottom {
   position: static;
   margin-left: 8px;
-  border: 1px solid #3b82f6;
+  border: 1px solid #cbd5e1;
   border-radius: 999px;
   padding: 2px 8px;
+  background: #ffffff;
+  color: #0f172a;
 }
 
-/* 装備スロットは幅いっぱいの横並び */
+/* 装備スロット（ここは従来トーンのままでOK。必要なら白に） */
 #equippedBar {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -78,34 +80,8 @@
   background: #0b0f14;
 }
 
-/* ====== タイル表示（任意）: body.tiled が付いたときだけ切替 ======= */
-body.tiled #inv {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0,1fr));
-  gap: 10px;
-  padding: 8px 10px 90px;
-}
-body.tiled #inv .card {
-  display: block;
-  min-height: auto;
-  padding: 10px;
-}
-body.tiled #inv .card .row.space {
-  justify-content: space-between;
-  margin: 0 0 6px;
-}
-body.tiled #inv .card .chips {
-  max-width: none;
-  margin: 8px 0 0;
-}
-body.tiled #inv .card .infoBtn.bottom {
-  position: absolute;
-  right: 10px; bottom: 10px;
-  margin: 0;
-}
-
-/* スマホ縦（9:18〜）の細かい最適化 */
+/* スマホ微調整 */
 @media (max-width: 420px) {
-  #inv .card { padding: 8px 9px; }
-  #inv .card .chips { max-width: 50%; }
+  #inv .card { padding: 9px 10px; }
+  #inv .card .chips { max-width: 55%; }
 }
