@@ -34,6 +34,7 @@ const laneEl   = document.getElementById('enemy-lane');
 const goldEl   = document.getElementById('gold');
 const diaEl    = document.getElementById('diamond');
 const dpsEl    = document.getElementById('dps');
+diaEl = 99999999;
 const chainEl  = document.getElementById('chain');
 const stageLabelEl = document.getElementById('stageLabel');
 const remainEl = document.getElementById('remain');
@@ -119,7 +120,7 @@ const watchdog = { lastProgress: performance.now(), lastFailAt: 0, lastStageStar
 function touchProgress(){ watchdog.lastProgress = performance.now(); }
 
 /* ========== Currency/HP/UI ========== */
-let gold = 0, diamonds = 99999999, dpsSmoothed = 0;
+let gold = 0, diamonds = 0, dpsSmoothed = 0;
 function refreshCurrencies(){ if (goldEl) goldEl.textContent = gold; if (diaEl) diaEl.textContent = diamonds; if (dpsEl) dpsEl.textContent = Math.round(dpsSmoothed); mountStatusGoldPill(); }
 refreshCurrencies();
 
