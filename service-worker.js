@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'idle-lightning-v6.5';
+const CACHE_NAME = 'idle-lightning-v6.53';
 const ASSETS = [
   './',
   './index.html',

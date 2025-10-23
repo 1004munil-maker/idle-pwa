@@ -1,11 +1,11 @@
 /* =========================================================
    Idle Lightning - game.js (EnemyDB連携)
-   v6.5.2-gate
-   - Audio Gate: 押下直後にビープ→WebAudio解禁→即BGM起動
-   - WebAudio一本化（BGM/SFX）
+   v6.5.3-bfcachefix
+   - Audio Gate：毎回再配線（once禁止）＋ BFCache 復帰で強制再配線
+   - 画面どこでもタップ＝サイレント解禁（保険）
+   - WebAudio一本化（BGM/SFX）、押下直後ビープ→即BGM
    - pageshow/focus/visibilitychange で自己復帰
    - 右外スポーン/ウォッチドッグ/ハードリセット維持
-   - 攻撃SFXはビーム発射と同期
    ========================================================= */
 
 /* ========== Config ========== */
@@ -366,7 +366,6 @@ function tryAttack(dt) {
     const d2 = dist2(sx, sy, ex, ey);
     if (d2 <= r2) cand.push({ e, d2, ex, ey });
   }
-  // 射程内にいない時は次回まできっちり待つ
   if (!cand.length) { lightning.timer = lightning.cooldown; return; }
 
   cand.sort((a,b)=>a.d2-b.d2);
@@ -699,22 +698,19 @@ window.GameAPI = {
   addLog, updateRemainLabel,
 };
 
-/* ========== BGM/SFX: iOS PWAハード対応 ========== */
+/* ========== BGM/SFX: WebAudio一本化 ========== */
 const BGM_KEY = 'bgmEnabled';
 function bgmEnabled(){ const v = localStorage.getItem(BGM_KEY); return v == null ? true : v === '1'; }
 function setBgmEnabled(on){ try { localStorage.setItem(BGM_KEY, on ? '1' : '0'); } catch {} }
 
-/* ---- HardAudioKit（WebAudio一本化） ---- */
+/* ---- HardAudioKit ---- */
 const HardAudioKit = (() => {
-  let ctx = null, unlocked = false, bgmNode = null, bgmGain = null, sfxGain = null;
+  let ctx = null, unlocked = false, bgmNode = null, bgmGain = null;
   const BUFS = {};
   const SRC = {
     day:   './assets/audio/bgm_day.mp3',
     night: './assets/audio/bgm_night.mp3',
-    attack:'./assets/audio/attack.mp3',
-    success:'./assets/audio/success.mp3',
-    failed: './assets/audio/failed.mp3',
-    upg:    './assets/audio/upg.mp3'
+    attack:'./assets/audio/attack.mp3'
   };
 
   function newCtx(){ const C = window.AudioContext||window.webkitAudioContext; return C? new C(): null; }
@@ -730,7 +726,6 @@ const HardAudioKit = (() => {
       ctx = ensureCtx();
       if (!ctx) return false;
       if (!bgmGain){ bgmGain = ctx.createGain(); bgmGain.gain.value = 0.7; bgmGain.connect(ctx.destination); }
-      if (!sfxGain){ sfxGain = ctx.createGain(); sfxGain.gain.value = ATTACK_SFX_VOL; sfxGain.connect(ctx.destination); }
       const osc = ctx.createOscillator(); const g = ctx.createGain();
       g.gain.value = 0.0001; g.connect(ctx.destination);
       osc.type='sine'; osc.frequency.value = 880; osc.connect(g);
@@ -786,36 +781,36 @@ const HardAudioKit = (() => {
 
   function isUnlocked(){ return unlocked; }
   async function tryResume(){ await resumeCtx(); }
-
-  function rebuild(){
-    try{ stopBgm(); }catch{}
-    try{ ctx && ctx.close && ctx.close(); }catch{}
-    ctx = null; bgmNode = null; bgmGain = null; sfxGain = null;
-    unlocked = false;
-  }
+  function rebuild(){ try{ stopBgm(); }catch{} try{ ctx && ctx.close && ctx.close(); }catch{} ctx=null; bgmNode=null; bgmGain=null; unlocked=false; }
 
   return { tapPrimeSync, unlockAsync, playBgm, stopBgm, playSfx, isUnlocked, tryResume, rebuild };
 })();
 
-/* ---- ゲートUI ---- */
+/* ---- Audio Gate UI ---- */
 function showAudioGate(on){
   const g = document.getElementById('audio-gate');
   if (!g) return; g.dataset.show = on?'1':'0'; g.setAttribute('aria-hidden', on?'false':'true');
 }
-function wireAudioGate(){
-  const btn = document.getElementById('audio-gate-btn');
-  if (!btn || btn.dataset.wired==='1') return;
-  btn.dataset.wired='1';
+function wireAudioGate(forceRewire=false){
+  let btn = document.getElementById('audio-gate-btn');
+  if (!btn) return;
+  if (forceRewire){
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    btn = newBtn;
+  }
   const handle = async (e)=>{
     e.preventDefault(); e.stopPropagation();
-    HardAudioKit.tapPrimeSync();              // 即ビープ
-    await HardAudioKit.unlockAsync();         // 非同期仕上げ
+    HardAudioKit.tapPrimeSync();          // 即ビープ
+    await HardAudioKit.unlockAsync();     // 非同期仕上げ
     await HardAudioKit.playBgm(gs.isNight ? 'night' : 'day');
     showAudioGate(false);
     const btnBgm = document.getElementById('btn-bgm');
     if (btnBgm){ btnBgm.setAttribute('aria-pressed','true'); btnBgm.textContent='♪ BGM ON'; }
   };
-  ['pointerdown','touchstart','click'].forEach(ev=> btn.addEventListener(ev, handle, {once:true, passive:false}));
+  ['pointerdown','click','touchstart','keydown'].forEach(ev=>{
+    btn.addEventListener(ev, handle, {passive:false});
+  });
 }
 
 /* ---- BGM適用 ---- */
@@ -827,7 +822,7 @@ async function applyBgmForStage(){
     return;
   }
   if (!HardAudioKit.isUnlocked()){
-    showAudioGate(true); wireAudioGate();
+    showAudioGate(true); wireAudioGate(true);   // ★ 毎回再配線
     if (btn){ btn.setAttribute('aria-pressed','false'); btn.textContent='♪ BGM OFF'; }
     return;
   }
@@ -844,7 +839,7 @@ function wireBgmToggleButton(){
   btn.addEventListener('click', async ()=>{
     setBgmEnabled(!bgmEnabled());
     if (bgmEnabled()){
-      if (!HardAudioKit.isUnlocked()){ showAudioGate(true); wireAudioGate(); }
+      if (!HardAudioKit.isUnlocked()){ showAudioGate(true); wireAudioGate(true); }
       else await applyBgmForStage();
     } else {
       await applyBgmForStage();
@@ -854,23 +849,34 @@ function wireBgmToggleButton(){
   window.GameAPI?.onStageChange?.(applyBgmForStage);
 }
 
+// 画面どこでもタップ＝サイレント解禁（保険）
+let __globalUnlockArmed = false;
+function armGlobalUnlock(){
+  if (__globalUnlockArmed) return;
+  const onAnyPointer = async ()=>{
+    if (!HardAudioKit.isUnlocked()){
+      await HardAudioKit.unlockAsync();   // サイレント解禁
+      applyBgmForStage();
+    }
+  };
+  document.addEventListener('pointerdown', onAnyPointer, {passive:true});
+  document.addEventListener('keydown', onAnyPointer);
+  __globalUnlockArmed = true;
+}
+
 function wireAudioRecovery(){
-  window.addEventListener('pageshow', async ()=>{
+  window.addEventListener('pageshow', async (e)=>{
+    // BFCache復帰時はDOM/属性が残るので、毎回強制再配線
     await HardAudioKit.tryResume();
-    if (!HardAudioKit.isUnlocked()) { showAudioGate(true); wireAudioGate(); }
-    else { applyBgmForStage(); }
-  });
-  window.addEventListener('focus',    async ()=>{ await HardAudioKit.tryResume(); applyBgmForStage(); });
-  document.addEventListener('visibilitychange', async ()=>{
-    if (!document.hidden){
-      await HardAudioKit.tryResume();
+    if (!HardAudioKit.isUnlocked()) {
+      showAudioGate(true); wireAudioGate(true);
+    } else {
       applyBgmForStage();
     }
   });
+  window.addEventListener('focus',    async ()=>{ await HardAudioKit.tryResume(); applyBgmForStage(); });
+  document.addEventListener('visibilitychange', async ()=>{ if (!document.hidden){ await HardAudioKit.tryResume(); applyBgmForStage(); }});
 }
-
-/* ---- 起動時はまずゲートを表示 ---- */
-function showAudioGateOnBoot(){ showAudioGate(true); wireAudioGate(); }
 
 /* ========== Status gold pill (title area) ========== */
 function queryByText(root, tagSelector, contains){
@@ -922,10 +928,12 @@ window.addEventListener('load', () => {
   }, 0);
   btnStatus?.addEventListener('click', ()=>{ if (window.Status && window.GameAPI) window.Status.open(window.GameAPI); setTimeout(mountStatusGoldPill, 0); });
 
-  // ★ ここが重要
+  // ★ 重要：常時配線
   wireBgmToggleButton();
   wireAudioRecovery();
-  showAudioGateOnBoot();
+  armGlobalUnlock();          // どこでもタップ＝保険
+  showAudioGate(true);        // 起動時にゲート提示＆再配線
+  wireAudioGate(true);
 });
 
 /* ========== Controls ========== */
@@ -946,12 +954,12 @@ function hideStartScreen() {
 
 btnNew?.addEventListener('click', async (e) => {
   e.preventDefault();
-  HardAudioKit.tapPrimeSync(); await HardAudioKit.unlockAsync();  // ★押下直後に解禁
+  HardAudioKit.tapPrimeSync(); await HardAudioKit.unlockAsync();
   resetAllProgressHard(); saveGame(); hideStartScreen(); applyBgmForStage();
 });
 btnContinue?.addEventListener('click', async (e) => {
   e.preventDefault();
-  HardAudioKit.tapPrimeSync(); await HardAudioKit.unlockAsync();  // ★押下直後に解禁
+  HardAudioKit.tapPrimeSync(); await HardAudioKit.unlockAsync();
   const data = loadGame();
   if (data) {
     gold = data.gold ?? gold; diamonds = data.diamonds ?? 0; refreshCurrencies();

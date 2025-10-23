@@ -91,7 +91,7 @@
 
   <!-- ===== Audio Gate（押下直後に必ずビープ→解禁） ===== -->
   <style>
-    .audio-gate{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);z-index:99999}
+    .audio-gate{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);z-index:999999;pointer-events:auto}
     .audio-gate[data-show="1"]{display:flex}
     .audio-card{width:min(520px,calc(100% - 48px));border-radius:16px;background:#0b1020;color:#fff;border:1px solid #5b6da0;padding:18px;box-shadow:0 22px 60px rgba(0,0,0,.45);text-align:center}
     .audio-card h2{margin:0 0 8px;font-size:20px}
@@ -99,7 +99,7 @@
     .audio-card .btn{display:inline-block;padding:12px 16px;border-radius:12px;border:1px solid #bcd3ff;background:linear-gradient(#2a61ff,#1740bd);color:#fff;font-weight:800;font-size:16px;min-width:220px}
     .audio-tip{font-size:12px;opacity:.7;margin-top:10px}
   </style>
-  <div id="audio-gate" class="audio-gate" aria-hidden="true">
+  <div id="audio-gate" class="audio-gate" aria-hidden="true" role="dialog" aria-modal="true">
     <div class="audio-card">
       <h2>🔊 音声を有効化</h2>
       <p>ホームに追加(PWA)では、起動直後に1回だけタップが必要です。</p>
@@ -110,7 +110,7 @@
 
   <!-- Scripts -->
   <script src="./assets/js/enemy-db.js?v=1"></script>
-  <script src="./assets/js/game.js?v=6.5.2-gate"></script>
+  <script src="./assets/js/game.js?v=6.5.3-bfcachefix"></script>
   <script src="./assets/js/exp.js?v=proto-01"></script>
   <script src="./assets/js/status.js?v=proto-02"></script>
 
@@ -135,4 +135,4 @@
     }
   </script>
 </body>
-</html>
+</html></html>
