@@ -46,7 +46,7 @@ function mergeSources(){
 
   const inv = invFromMain ?? (Array.isArray(gear?.inventory) ? gear.inventory : []);
   const eq  = eqFromMain  ?? (gear?.equipped || { stone:null, ring:null });
-  let nextId = idFromMain ?? Number(gear?.nextItemId) || 1;
+  let nextId = idFromMain ?? (Number(gear?.nextItemId ?? 0) || 1);
 
   // nextItemId が欠けてたらインベントリから復元
   if (!nextId && inv.length){
