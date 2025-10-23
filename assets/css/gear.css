@@ -1,84 +1,111 @@
-:root{
-  --bg:#0f1115; --panel:#171a21; --fg:#e5e7eb; --muted:#9ca3af;
-  --acc:#60a5fa; --ok:#34d399; --warn:#f59e0b; --bad:#ef4444;
-  --card:#0b0e13; --border:#263143;
+/* === Gear: デフォルトはリスト表示（スマホ縦に最適化） ===================== */
+
+/* インベントリ全体を縦並びに */
+#inv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 90px; /* 下はCTA群に被らない余白 */
 }
 
-*{ box-sizing:border-box; }
-html,body{ margin:0; padding:0; background:var(--bg); color:var(--fg); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", "Hiragino Kaku Gothic ProN", "游ゴシック", "Yu Gothic", "Meiryo", sans-serif; }
-
-.topbar{ position:sticky; top:0; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#0d1015cc; backdrop-filter: blur(6px); border-bottom:1px solid #1f2937; }
-.topbar h1{ margin:0; font-size:18px; letter-spacing:.05em; }
-.topbar .back{ color:#9ec8ff; text-decoration:none; }
-.topbar .wallet{ font-weight:700; }
-
-.wrap{ max-width:980px; margin:18px auto; padding:0 12px; display:grid; gap:16px; }
-.panel{ background:var(--panel); border:1px solid #192130; border-radius:14px; padding:12px; }
-.panel h2{ margin:6px 0 10px; font-size:16px; color:#c9d7f2; }
-.row{ display:flex; gap:10px; align-items:center; }
-.row.space{ justify-content:space-between; }
-.row.r{ justify-content:flex-end; }
-.actions .btn{ min-width:160px; }
-
-.equipped{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-.slot{ min-height:116px; border:2px dashed #334155; border-radius:12px; display:flex; align-items:center; justify-content:center; padding:8px; position:relative; }
-.slot .muted{ color:var(--muted); text-align:center; }
-.slot .card.equip{ width:100%; min-height:100px; border:2px solid var(--border); border-radius:10px; background:var(--card); padding:8px; position:relative; }
-.slot .unequip{ position:absolute; right:8px; bottom:8px; background:#0b1e37; color:#cbe3ff; border:1px solid #1f3a5f; border-radius:8px; padding:6px 10px; }
-
-.grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
-.card{ background:var(--card); border:2px solid var(--border); border-radius:12px; padding:10px; position:relative; }
-.card:focus{ outline:2px solid #3b82f6; }
-.card .badge{ display:inline-block; font-weight:800; padding:2px 8px; border-radius:999px; color:#111; }
-.card .tag{ display:inline-block; padding:2px 6px; border-radius:6px; background:#0c1220; color:#cbd5e1; border:1px solid #1f2937; }
-.card .row.gap{ gap:8px; }
-.card .pickBox{ position:absolute; left:8px; top:8px; }
-.card .infoBtn.bottom{ position:absolute; right:8px; bottom:8px; background:#101727; color:#cbd5e1; border:1px solid #1f2937; border-radius:50%; width:28px; height:28px; }
-.card .code{ position:absolute; left:10px; bottom:8px; color:#64748b; font-size:12px; letter-spacing:.05em; }
-
-.btn{ background:#0f172a; color:#dbeafe; border:1px solid #1e293b; padding:10px 12px; border-radius:10px; cursor:pointer; }
-.btn:hover{ filter:brightness(1.06); }
-.btn.accent{ background:linear-gradient(#0ea5e980,#0284c780); border-color:#0ea5e9; color:#083344; font-weight:800; }
-.btn.warn{ background:linear-gradient(#f59e0b22,#f59e0b11); border-color:#f59e0b; color:#f59e0b; }
-.btn.ghost{ background:#10141d; color:#9ca3af; border:1px dashed #334155; }
-
-.hint{ color:#93a2bb; }
-
-.toast{ position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#0b1020; color:#e5e7eb; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; box-shadow:0 10px 28px rgba(0,0,0,.35); display:none; z-index:9999; white-space:pre-line; }
-.toast.ok{ border-color:#10b981; color:#d1fae5; }
-.toast.warn{ border-color:#f59e0b; color:#fde68a; }
-.toast.info{ border-color:#334155; color:#e5e7eb; }
-
-/* Info bubble */
-.infoBubble{ position:fixed; background:#0b1020; color:#e5e7eb; border:1px solid #1e293b; border-radius:10px; padding:10px 12px; z-index:10000; box-shadow:0 12px 24px rgba(0,0,0,.4); }
-
-/* Fly animation */
-.flyCard{ position:fixed; pointer-events:none; z-index:9999; transition: transform .36s cubic-bezier(.2,.7,.2,1), opacity .36s; border-color: var(--rar,#3b82f6); opacity:1; }
-
-/* 強化オーバーレイ */
-.enh-overlay{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.45); z-index:10000; }
-.enh-overlay[hidden]{ display:none; }
-.enh-overlay .box{ background:#0b1020; border:1px solid #1e293b; border-radius:14px; padding:18px; width:min(92vw,360px); text-align:center; }
-.enh-overlay .title{ font-weight:900; margin-top:6px; }
-.enh-overlay .desc{ color:#94a3b8; font-size:14px; }
-.spinner{ width:40px; height:40px; border-radius:999px; border:4px solid #102347; border-top-color:#60a5fa; margin:0 auto; animation:spin 1s linear infinite; }
-@keyframes spin{ to{ transform:rotate(360deg); } }
-
-/* 強化フラッシュ（赤↔青） */
-.enh-flash{ animation: flash 0.5s linear infinite; }
-@keyframes flash{
-  0%{ box-shadow:0 0 0 2px #ef4444AA, 0 8px 18px rgba(0,0,0,.18); border-color:#ef4444; }
-  50%{ box-shadow:0 0 0 2px #3b82f6AA, 0 8px 18px rgba(0,0,0,.18); border-color:#3b82f6; }
-  100%{ box-shadow:0 0 0 2px #ef4444AA, 0 8px 18px rgba(0,0,0,.18); border-color:#ef4444; }
+/* “カード”を行（リスト）ルックにする。JSが使う .card はそのまま */
+#inv .card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid var(--rar, #404040);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: #0f1117;
+  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+  min-height: 64px;
 }
 
-/* モーダル */
-.modal-wrap{ position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10001; display:flex; align-items:center; justify-content:center; padding:16px; }
-.modal{ max-width:480px; width:calc(100% - 32px); background:#0b1020; color:#e5e7eb; border:1px solid #1e293b; border-radius:14px; box-shadow:0 18px 40px rgba(0,0,0,.3); padding:16px }
-.modal .title{ font-weight:900; margin-bottom:8px; }
-.modal .body{ line-height:1.6; }
-.warn{ color:#fca5a5; font-weight:900; }
+/* チェックボックス列を先頭に寄せる */
+#inv .card .pickBox {
+  margin-right: 6px;
+}
+#inv .card .pickBox .pick {
+  width: 20px;
+  height: 20px;
+}
 
-/* 音声解禁ボタン */
-.unlock{ position:fixed; left:50%; top:12px; transform:translateX(-50%); z-index:10002;
-  background:#1e293b; color:#cbe3ff; border:1px solid #3b82f6; border-radius:999px; padding:8px 12px; }
+/* レアバッジ・名前・強化値を横に収める */
+#inv .card .row.space {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 2px;
+  margin-right: auto; /* 右側（+タグ群）との余白を作る */
+}
+
+/* 小タグ（オプション）は折り返しつつ横ならび */
+#inv .card .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;   /* 右側へ寄せる */
+  max-width: 46%;
+}
+
+/* 質感 */
+#inv .card .badge { color:#000; font-weight: 900; border-radius: 999px; padding: 2px 6px; }
+#inv .card .tag   { background: #111827; border-radius: 6px; padding: 2px 6px; }
+
+/* 詳細ポップ “？”ボタンは行右下→右中央寄せに */
+#inv .card .infoBtn.bottom {
+  position: static;
+  margin-left: 8px;
+  border: 1px solid #3b82f6;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+/* 装備スロットは幅いっぱいの横並び */
+#equippedBar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px;
+}
+#equippedBar .slot {
+  border: 1px dashed #334155;
+  border-radius: 12px;
+  padding: 10px;
+  min-height: 84px;
+  display: flex; align-items: center; justify-content: center;
+  background: #0b0f14;
+}
+
+/* ====== タイル表示（任意）: body.tiled が付いたときだけ切替 ======= */
+body.tiled #inv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px;
+  padding: 8px 10px 90px;
+}
+body.tiled #inv .card {
+  display: block;
+  min-height: auto;
+  padding: 10px;
+}
+body.tiled #inv .card .row.space {
+  justify-content: space-between;
+  margin: 0 0 6px;
+}
+body.tiled #inv .card .chips {
+  max-width: none;
+  margin: 8px 0 0;
+}
+body.tiled #inv .card .infoBtn.bottom {
+  position: absolute;
+  right: 10px; bottom: 10px;
+  margin: 0;
+}
+
+/* スマホ縦（9:18〜）の細かい最適化 */
+@media (max-width: 420px) {
+  #inv .card { padding: 8px 9px; }
+  #inv .card .chips { max-width: 50%; }
+}
