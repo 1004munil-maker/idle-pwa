@@ -1,49 +1,52 @@
 // service-worker.js
-const CACHE = 'idle-lightning-v5'; // バージョン上げて更新配信
+const CACHE_NAME = 'idle-lightning-v6.5';
 const ASSETS = [
   './',
   './index.html',
-  './style.css',
-  './assets/js/game.js',
-  './assets/js/enemy-db.js',
-  './assets/js/exp.js',
-  './assets/js/status.js',
-  // 画像
+  './style.css?v=ultra-v6-clean',
+  './assets/js/game.js?v=6.5-pwa-audiokit',
+  './assets/js/enemy-db.js?v=1',
+  './assets/js/exp.js?v=proto-01',
+  './assets/js/status.js?v=proto-02',
   './assets/images/spirit.png',
   './assets/images/bg.png',
-  // ★ 音源を必ず入れる
   './assets/audio/bgm_day.mp3',
   './assets/audio/bgm_night.mp3',
   './assets/audio/attack.mp3',
+  // 使うなら:
+  './assets/audio/success.mp3',
+  './assets/audio/failed.mp3',
+  './assets/audio/upg.mp3',
+  './manifest.webmanifest'
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
-  self.skipWaiting();
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(ASSETS);
+    self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => k === CACHE_NAME ? null : caches.delete(k)));
+    self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  // 音源はキャッシュ優先（再生の安定性重視）
-  if (req.url.endsWith('.mp3')) {
-    e.respondWith(
-      caches.match(req).then(res => res || fetch(req).then(net => {
-        const clone = net.clone();
-        caches.open(CACHE).then(c => c.put(req, clone));
-        return net;
-      }))
-    );
-    return;
+  // 音声/JS/CSS/画像はキャッシュ優先、その他はネット優先→フォールバック
+  if (/\.(mp3|m4a|ogg|wav|aac|js|css|png|jpg|jpeg|gif|webp|svg)$/i.test(new URL(req.url).pathname)) {
+    e.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(req);
+      if (cached) return cached;
+      const res = await fetch(req).catch(()=>null);
+      if (res && res.ok) cache.put(req, res.clone());
+      return res || new Response('', { status: 504 });
+    })());
   }
-  // それ以外はネット優先→失敗ならキャッシュ
-  e.respondWith(
-    fetch(req).catch(() => caches.match(req))
-  );
 });

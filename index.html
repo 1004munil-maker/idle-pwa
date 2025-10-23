@@ -8,13 +8,21 @@
   <!-- PWA -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#0f1115" />
+  <!-- iOS PWA 最適化 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- Preload -->
+  <!-- Preload（音はWebAudioでfetchして使うが、HTTPキャッシュが効くのでpreloadは有益） -->
   <link rel="preload" as="image" href="./assets/images/spirit.png" />
   <link rel="preload" as="image" href="./assets/images/bg.png" />
   <link rel="preload" as="audio" href="./assets/audio/bgm_day.mp3" />
   <link rel="preload" as="audio" href="./assets/audio/bgm_night.mp3" />
-  <link rel="preload" as="audio" href="./assets/audio/attack.mp3" /> <!-- ★ 追加 -->
+  <link rel="preload" as="audio" href="./assets/audio/attack.mp3" />
+  <!-- （任意）他で使うなら：
+  <link rel="preload" as="audio" href="./assets/audio/success.mp3" />
+  <link rel="preload" as="audio" href="./assets/audio/failed.mp3" />
+  <link rel="preload" as="audio" href="./assets/audio/upg.mp3" />
+  -->
 
   <!-- Styles -->
   <link rel="stylesheet" href="./style.css?v=ultra-v6-clean" />
@@ -90,7 +98,7 @@
 
   <!-- Scripts -->
   <script src="./assets/js/enemy-db.js?v=1"></script>
-  <script src="./assets/js/game.js?v=6.4-ext-final"></script> <!-- ★ バージョン更新 -->
+  <script src="./assets/js/game.js?v=6.5-pwa-audiokit"></script>
   <script src="./assets/js/exp.js?v=proto-01"></script>
   <script src="./assets/js/status.js?v=proto-02"></script>
 
@@ -115,10 +123,9 @@
     }
   </script>
 
-  <!-- Audio -->
+  <!-- （任意）HTMLAudioタグ：残してOK / 未使用 -->
   <audio id="bgm-day"   src="./assets/audio/bgm_day.mp3"   preload="auto" loop></audio>
   <audio id="bgm-night" src="./assets/audio/bgm_night.mp3" preload="auto" loop></audio>
-  <!-- 任意：あるとSFXの解禁が安定 -->
   <audio id="sfx-attack" src="./assets/audio/attack.mp3" preload="auto"></audio>
 </body>
 </html>
