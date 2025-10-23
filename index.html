@@ -12,19 +12,117 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <!-- Preload（HTTPキャッシュ目的） -->
+  <!-- Preload（画像だけ先読み：音はブート時に解禁・初回fetch） -->
   <link rel="preload" as="image" href="./assets/images/spirit.png" />
   <link rel="preload" as="image" href="./assets/images/bg.png" />
-  <link rel="preload" as="audio" href="./assets/audio/bgm_day.mp3" />
-  <link rel="preload" as="audio" href="./assets/audio/bgm_night.mp3" />
-  <link rel="preload" as="audio" href="./assets/audio/attack.mp3" />
 
-  <!-- Styles -->
   <link rel="stylesheet" href="./style.css?v=ultra-v6-clean" />
+  <style>
+    /* === ブート画面（常設。ゲームより先に描画される） === */
+    #boot-screen {
+      position: fixed; inset: 0; z-index: 999999;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(6,8,12,.96);
+    }
+    #boot-card {
+      width: min(480px, 92%); text-align: center; color: #fff;
+      background: #0f1115; border: 2px solid #3b3f4a; border-radius: 16px;
+      padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    }
+    #boot-card h1 { margin: 0 0 6px; font-size: 22px; }
+    #boot-card p  { margin: 0 0 16px; opacity:.8; font-size: 13px; }
+    #boot-btn {
+      -webkit-tap-highlight-color: transparent;
+      display: inline-block; width: 100%;
+      padding: 12px 16px; font-weight: 800; font-size: 16px;
+      border-radius: 12px; border: 2px solid #57b7ff; color: #09121a;
+      background: linear-gradient(#a6e2ff, #57b7ff);
+    }
+    #boot-btn:active { transform: translateY(1px); }
+    .game-container { visibility: hidden; } /* ブートまで見せない */
+    body.booted .game-container { visibility: visible; }
+  </style>
 </head>
 <body>
+  <!-- === ブート画面（静的HTML・inline JSで確実に押せる） === -->
+  <div id="boot-screen" role="dialog" aria-label="音の有効化">
+    <div id="boot-card">
+      <h1>⚡ 雷精霊を育てよ！</h1>
+      <p>音を有効化してゲームを開始します（PWA対策）。</p>
+      <button id="boot-btn" onclick="window.__boot && window.__boot()">▶ タップして開始（音を有効化）</button>
+      <!-- 無音1サンプル（base64） -->
+      <audio id="__prime" preload="auto" src="data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAACcQACcQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" />
+      <script>
+        // 2段階ブート：音を解禁 -> ゲームスクリプトを順に読み込む
+        (function(){
+          const PR = document.getElementById('__prime');
+          // 既にブート済みなら自動スキップ（ページ復帰など）
+          if (sessionStorage.getItem('booted') === '1') {
+            document.body.classList.add('booted');
+            document.getElementById('boot-screen').style.display = 'none';
+            loadScriptsSequential([
+              './assets/js/enemy-db.js?v=1',
+              './assets/js/game.js?v=6.6-boot-first',
+              './assets/js/exp.js?v=proto-01',
+              './assets/js/status.js?v=proto-02'
+            ]);
+            return;
+          }
+
+          window.__boot = async function(){
+            try {
+              // 1) HTMLAudio でユーザーアクション内に再生
+              try { await PR.play(); PR.pause(); PR.currentTime = 0; } catch(e){}
+              // 2) WebAudio をこのタップ内でハード解禁（作成→resume→無音1サンプルをstart）
+              try {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (Ctx) {
+                  const ac = new Ctx();
+                  await ac.resume().catch(()=>{});
+                  const buf = ac.createBuffer(1,1,22050);
+                  const src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination);
+                  try{ src.start(0); }catch(e){}
+                  // コンテキストを共有（ゲーム側が拾う）
+                  window.__AC = ac;
+                }
+              } catch(e){}
+
+              // 3) UI切替＆スクリプト順次ロード
+              sessionStorage.setItem('booted','1');
+              document.body.classList.add('booted');
+              document.getElementById('boot-screen').style.display = 'none';
+
+              loadScriptsSequential([
+                './assets/js/enemy-db.js?v=1',
+                './assets/js/game.js?v=6.6-boot-first',
+                './assets/js/exp.js?v=proto-01',
+                './assets/js/status.js?v=proto-02'
+              ]);
+            } catch(e) {
+              alert('音の有効化に失敗しました。もう一度タップしてください。');
+              console.log(e);
+            }
+          };
+
+          function loadScriptsSequential(srcs){
+            const next = () => {
+              const src = srcs.shift();
+              if (!src) return;
+              const s = document.createElement('script');
+              s.src = src; s.defer = true;
+              s.onload = next;
+              s.onerror = next;
+              document.body.appendChild(s);
+            };
+            next();
+          }
+        })();
+      </script>
+    </div>
+  </div>
+
+  <!-- === ここから先は従来のゲームUI（そのまま） === -->
   <div class="game-container">
-    <!-- HUD -->
     <div class="hud">
       <div class="hud-row">
         <div class="chip gold"><span class="label">Gold</span><span id="gold">0</span></div>
@@ -37,12 +135,10 @@
         <span id="levelChip" class="chip">Lv 1</span>
         <div class="expbar-wrap"><div id="expBar" class="expbar-fill"></div></div>
         <small id="expLabel" class="expbar-label">0 / 20</small>
-
         <div class="chip"><span class="label">HP</span><span id="playerHpLabel">100/100</span></div>
       </div>
     </div>
 
-    <!-- Battlefield -->
     <section class="battlefield">
       <div class="spirit-wrap">
         <img src="./assets/images/spirit.png" alt="精霊" class="spirit" width="32" height="32" />
@@ -52,30 +148,22 @@
       <div id="stage-clear" class="stage-clear" aria-hidden="true">CLEAR!</div>
     </section>
 
-    <!-- Log（右上にBGMボタン） -->
     <section id="log" class="log" aria-live="polite">
       <button id="btn-bgm" class="bgm-toggle" aria-pressed="true" title="BGMのON/OFF">♪ BGM ON</button>
-      <!-- ログはここに動的に追加 -->
     </section>
 
-    <!-- Menu -->
     <section class="menu">
       <button id="btn-status">ステータス</button>
       <button class="btn-rate">NONE</button>
       <button class="btn-range">NONE</button>
 
       <button id="btn-gear">装備</button>
-      <script>
-        document.getElementById('btn-gear')?.addEventListener('click', () => {
-          window.location.href = './gear.html';
-        });
-      </script>
+      <script>document.getElementById('btn-gear')?.addEventListener('click',()=>location.href='./gear.html');</script>
 
       <button id="btn-resume">宝物</button>
       <button id="btn-retry">リトライ</button>
     </section>
 
-    <!-- Start -->
     <div id="start-screen" aria-hidden="false">
       <div class="start-card">
         <h1 class="title">⚡ 雷精霊を育てよ！</h1>
@@ -89,50 +177,11 @@
     </div>
   </div>
 
-  <!-- ===== Audio Gate（押下直後に必ずビープ→解禁） ===== -->
-  <style>
-    .audio-gate{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);z-index:999999;pointer-events:auto}
-    .audio-gate[data-show="1"]{display:flex}
-    .audio-card{width:min(520px,calc(100% - 48px));border-radius:16px;background:#0b1020;color:#fff;border:1px solid #5b6da0;padding:18px;box-shadow:0 22px 60px rgba(0,0,0,.45);text-align:center}
-    .audio-card h2{margin:0 0 8px;font-size:20px}
-    .audio-card p{margin:6px 0 14px;opacity:.85;font-size:14px;line-height:1.5}
-    .audio-card .btn{display:inline-block;padding:12px 16px;border-radius:12px;border:1px solid #bcd3ff;background:linear-gradient(#2a61ff,#1740bd);color:#fff;font-weight:800;font-size:16px;min-width:220px}
-    .audio-tip{font-size:12px;opacity:.7;margin-top:10px}
-  </style>
-  <div id="audio-gate" class="audio-gate" aria-hidden="true" role="dialog" aria-modal="true">
-    <div class="audio-card">
-      <h2>🔊 音声を有効化</h2>
-      <p>ホームに追加(PWA)では、起動直後に1回だけタップが必要です。</p>
-      <button id="audio-gate-btn" class="btn">音声をオンにする</button>
-      <div class="audio-tip">※押した瞬間に「ピッ」と鳴れば成功。以降は自動でBGM復帰します。</div>
-    </div>
-  </div>
-
-  <!-- Scripts -->
-  <script src="./assets/js/enemy-db.js?v=1"></script>
-  <script src="./assets/js/game.js?v=6.5.3-bfcachefix"></script>
-  <script src="./assets/js/exp.js?v=proto-01"></script>
-  <script src="./assets/js/status.js?v=proto-02"></script>
-
-  <!-- Init (Exp/Status) -->
-  <script>
-    window.addEventListener('load', () => {
-      if (window.GameAPI && window.Exp && !window.Exp?._inited) {
-        try { window.Exp.init(window.GameAPI); window.Exp._inited = true; } catch (e) {}
-      }
-      if (window.GameAPI && window.Status && !window.Status?._inited) {
-        try { window.Status.init(window.GameAPI); window.Status._inited = true; } catch (e) {}
-      }
-      document.getElementById('btn-status')
-        ?.addEventListener('click', () => window.Status?.open?.(window.GameAPI));
-    });
-  </script>
-
-  <!-- Service Worker -->
+  <!-- Service Worker（ブート後でもOKだが、ここで登録でも可） -->
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
     }
   </script>
 </body>
-</html></html>
+</html>
