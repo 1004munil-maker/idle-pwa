@@ -661,7 +661,7 @@ function resetAllProgressHard(){
   gold = 0; diamonds = 0; dpsSmoothed = 0;
   gs.floor = 1; gs.chapter = 1; gs.stage = 1; gs.isNight = false; gs.hpScale = 1.0;
   playerHpMax = 100; playerHp = playerHpMax; updatePlayerHpUI();
-  lightning.baseDmg = 8; lightning.cooldown = 0.70; lightning.range = 380; lightning.chainCount = 2;
+  lightning.baseDmg = 8; lightning.cooldown = 2.0; lightning.range = 380; lightning.chainCount = 2;
 
   clearAllEnemies(); enemySeq = 1; updateRemainLabel();
 
